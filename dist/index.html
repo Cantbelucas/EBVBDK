@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lucas — Datatekniker-elev · Infrastruktur</title>
+<meta name="description" content="Portfolio for datatekniker-elev med speciale i infrastruktur. Netværk, Linux-drift, automatisering og selvhostede systemer.">
+<meta name="author" content="Lucas">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e12">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Lucas — Datatekniker-elev · Infrastruktur">
+<meta property="og:description" content="Portfolio for datatekniker-elev med speciale i infrastruktur. Netværk, Linux-drift, automatisering og selvhostede systemer.">
+<meta property="og:locale" content="da_DK">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/styles.css?v=2c42fdb5">
+</head>
+<body>
+<a class="skip-link" href="#main">Spring til indhold</a>
+
+<header class="site-header">
+  <div class="wrap site-header__inner">
+    <a class="brand" href="#top">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">Lucas</span>
+    </a>
+    <nav class="nav" aria-label="Primær navigation">
+      <ul>
+        <li><a href="#om">Om</a></li>
+        <li><a href="#projekter">Projekter</a></li>
+        <li><a href="#kompetencer">Kompetencer</a></li>
+        <li><a href="#kontakt">Kontakt</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="hero" id="top">
+    <div class="wrap">
+      <p class="hero__status"><span class="pulse" aria-hidden="true"></span>Søger læreplads</p>
+      <h1 class="hero__name">Lucas</h1>
+      <p class="hero__role">Datatekniker-elev · Infrastruktur</p>
+      <p class="hero__tagline">Bygger, bryder og genopbygger netværk og servere for at forstå hvad der sker under overfladen.</p>
+      <ul class="hero__meta">
+        <li><span class="hero__key">base</span>Midtjylland</li>
+        <li><span class="hero__key">uddannelse</span>EUX · datatekniker</li>
+        <li><span class="hero__key">projekter</span>5</li>
+      </ul>
+      <div class="hero__actions">
+        <a class="btn btn--primary" href="mailto:lucasmaj08@gmail.com">Skriv til mig</a>
+        <a class="btn" href="#projekter">Se projekter</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="om">
+    <div class="wrap">
+      <h2 class="section__title"><span class="section__num" aria-hidden="true">01</span>Om mig</h2>
+      <div class="prose prose--about">
+        <p>Jeg er 18 år og læser til <strong>datatekniker med speciale i infrastruktur</strong> på EUX. Det meste af det jeg kan, har jeg lært ved at bygge det selv: et netværkslab jeg konfigurerer fra bunden, en server jeg selv hærder og drifter, og scripts der løser problemer jeg faktisk er stødt på.</p>
+        <p>Min tilgang til fejlfinding er systematisk frem for gættende. Jeg arbejder efter <strong>elimineringsmetoden</strong>: indsnævr fejlen lag for lag, test én ting ad gangen, udeluk det der beviseligt virker, og dokumentér hvad der blev ændret. Det gælder både en trunk der ikke sender de rigtige VLAN'er igennem, og en container der dør uden en tydelig fejl. Når jeg ikke ved noget, siger jeg det — og finder ud af det.</p>
+        <p>Jeg søger en <strong>læreplads i Midtjylland</strong> inden for netværk, servere og drift, hvor jeg kommer tæt på rigtig infrastruktur og folk der er dygtigere end mig. Jeg møder til tiden, spørger når jeg er i tvivl, og rører ikke produktion uden at vide hvad jeg laver.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--projects" id="projekter">
+    <div class="wrap">
+      <h2 class="section__title"><span class="section__num" aria-hidden="true">02</span>Projekter</h2>
+      <p class="section__lead">Ting jeg har bygget, driftet eller ødelagt med vilje for at forstå dem.</p>
+
+      <div class="filters" id="filters" hidden>
+        <span class="filters__label" id="filters-label">Filtrér</span>
+        <div class="filters__list" role="group" aria-labelledby="filters-label">
+          <button type="button" class="chip" data-filter="*" aria-pressed="true">Alle</button>
+          <button type="button" class="chip" data-filter="cisco-ios" aria-pressed="false">Cisco IOS</button>
+          <button type="button" class="chip" data-filter="vlan" aria-pressed="false">VLAN</button>
+          <button type="button" class="chip" data-filter="etherchannel" aria-pressed="false">EtherChannel</button>
+          <button type="button" class="chip" data-filter="stp" aria-pressed="false">STP</button>
+          <button type="button" class="chip" data-filter="hsrp" aria-pressed="false">HSRP</button>
+          <button type="button" class="chip" data-filter="aaa" aria-pressed="false">AAA</button>
+          <button type="button" class="chip" data-filter="python" aria-pressed="false">Python</button>
+          <button type="button" class="chip" data-filter="git" aria-pressed="false">Git</button>
+          <button type="button" class="chip" data-filter="ssh" aria-pressed="false">SSH</button>
+          <button type="button" class="chip" data-filter="netvaerksautomatisering" aria-pressed="false">Netværksautomatisering</button>
+          <button type="button" class="chip" data-filter="ubuntu" aria-pressed="false">Ubuntu</button>
+          <button type="button" class="chip" data-filter="docker" aria-pressed="false">Docker</button>
+          <button type="button" class="chip" data-filter="nginx" aria-pressed="false">nginx</button>
+          <button type="button" class="chip" data-filter="cloudflare" aria-pressed="false">Cloudflare</button>
+          <button type="button" class="chip" data-filter="ufw" aria-pressed="false">UFW</button>
+          <button type="button" class="chip" data-filter="snmp" aria-pressed="false">SNMP</button>
+          <button type="button" class="chip" data-filter="sqlite" aria-pressed="false">SQLite</button>
+          <button type="button" class="chip" data-filter="rest-api" aria-pressed="false">REST API</button>
+          <button type="button" class="chip" data-filter="linux" aria-pressed="false">Linux</button>
+          <button type="button" class="chip" data-filter="vps" aria-pressed="false">VPS</button>
+          <button type="button" class="chip" data-filter="drift" aria-pressed="false">Drift</button>
+        </div>
+      </div>
+      <p class="filters__count" id="filters-count" role="status" aria-live="polite"></p>
+
+      <div class="projects" id="projects">
+        <article class="project" data-tags="cisco-ios|vlan|etherchannel|stp|hsrp|aaa">
+          <div class="project__top">
+            <span class="project__idx" aria-hidden="true">01</span>
+            <h3 class="project__title">Cisco-lab</h3>
+            <span class="status status--ongoing">Løbende</span>
+          </div>
+          <p class="project__summary">Hands-on netværkslab hvor jeg konfigurerer, verificerer og bevidst bryder et switchet og routet netværk.</p>
+          <div class="prose project__body">
+        <p>Labbet er bygget op omkring et par switche og en router, og bliver revet ned og sat op igen hver gang der er en mekanisme jeg ikke forstår godt nok.</p>
+        <ul><li><strong>Segmentering:</strong> VLAN, trunking og inter-VLAN routing, med kontrol af hvilke VLAN'er der reelt kommer igennem en trunk</li><li><strong>Redundans og båndbredde:</strong> EtherChannel med LACP, og Spanning Tree hvor root bridge er valgt bevidst i stedet for tilfældigt</li><li><strong>Failover:</strong> HSRP på gateway-niveau, verificeret ved at trække forbindelsen og måle hvor længe trafikken er nede</li><li><strong>Sti-overvågning:</strong> IP SLA til at måle om en rute faktisk svarer, og til at skifte statisk routing automatisk</li><li><strong>Adgangskontrol:</strong> Port Security på access-porte og centraliseret AAA i stedet for lokale brugere på hver enhed</li></ul>
+        <p>Hver øvelse afsluttes med verifikation via <code>show</code>-kommandoer og en kort note om hvad der gik galt undervejs. Noterne er ærligt talt den mest værdifulde del — det er dem jeg slår op i, næste gang det samme sker.</p>
+          </div>
+          <ul class="tags" aria-label="Teknologier"><li class="tag">Cisco IOS</li><li class="tag">VLAN</li><li class="tag">EtherChannel</li><li class="tag">STP</li><li class="tag">HSRP</li><li class="tag">AAA</li></ul>
+        </article>
+
+        <article class="project" data-tags="python|git|ssh|netvaerksautomatisering">
+          <div class="project__top">
+            <span class="project__idx" aria-hidden="true">02</span>
+            <h3 class="project__title">Config backup + drift detection</h3>
+            <span class="status status--live">I drift</span>
+          </div>
+          <p class="project__summary">Script der henter running-config fra netværksenheder, versionsstyrer den i Git og alarmerer ved ændringer.</p>
+          <div class="prose project__body">
+        <p>Scriptet logger på enhederne med faste intervaller og committer kun når noget reelt er anderledes. Formålet er at kunne svare præcist på <strong>hvem ændrede hvad, hvornår — og hvad stod der før?</strong> uden at gætte.</p>
+        <ul><li>Én fil pr. enhed, så <code>git log</code> bliver en tidslinje over hele netværkets konfiguration</li><li>Flygtige linjer som timestamps, uptime og tællere filtreres fra, så der kun opstår en commit ved en <strong>reel</strong> konfigurationsændring — ellers drukner de rigtige ændringer i støj</li><li>Uventet drift udløser en notifikation med selve diff'en vedhæftet, så man kan se ændringen uden at skulle logge på noget</li><li>Credentials ligger uden for repoet i miljøvariabler, aldrig i koden</li><li>Kører som planlagt job, og fejler højlydt hvis en enhed ikke svarer — et backup-script der stille holder op med at virke er værre end ingen backup</li></ul>
+        <p>Det er også min rollback-plan: en kendt god konfiguration ligger altid ét <code>git checkout</code> væk.</p>
+          </div>
+          <ul class="tags" aria-label="Teknologier"><li class="tag">Python</li><li class="tag">Git</li><li class="tag">SSH</li><li class="tag">Netværksautomatisering</li></ul>
+        </article>
+
+        <article class="project" data-tags="ubuntu|docker|nginx|cloudflare|ufw|ssh">
+          <div class="project__top">
+            <span class="project__idx" aria-hidden="true">03</span>
+            <h3 class="project__title">Selvhostet stack</h3>
+            <span class="status status--live">I drift</span>
+          </div>
+          <p class="project__summary">Hærdet cloud-VM som jeg selv drifter — og som denne side kører på lige nu.</p>
+          <div class="prose project__body">
+        <p>VM'en er sat op fra en tom Ubuntu-installation, og hvert lag er lagt på bevidst ét ad gangen. <strong>Siden du læser lige nu bliver serveret herfra</strong> som statiske filer gennem nginx.</p>
+        <ul><li><strong>SSH:</strong> kun nøglebaseret login. Password-autentificering og direkte root-login er slået fra</li><li><strong>Firewall:</strong> <code>ufw</code> med default deny indgående — kun de porte der faktisk skal bruges er åbne</li><li><strong>Isolation:</strong> tjenester kører i Docker-containere, så de ikke deler filsystem og afhængigheder med hinanden eller med værten</li><li><strong>Indgang:</strong> nginx som reverse proxy foran containerne, med HTTPS og automatisk fornyede certifikater</li><li><strong>Foran det hele:</strong> Cloudflare til DNS, TLS og som filter mod den baggrundsstøj enhver offentlig IP får</li><li><strong>På vej:</strong> privat fildeling og en gameserver på samme host, adskilt fra det der allerede kører</li></ul>
+        <p>Pointen er ikke at det er avanceret — pointen er at det har oppetid, at jeg selv har sat hvert lag op, og at jeg ved hvad der sker når noget går ned.</p>
+          </div>
+          <ul class="tags" aria-label="Teknologier"><li class="tag">Ubuntu</li><li class="tag">Docker</li><li class="tag">nginx</li><li class="tag">Cloudflare</li><li class="tag">UFW</li><li class="tag">SSH</li></ul>
+        </article>
+
+        <article class="project" data-tags="python|snmp|sqlite|rest-api">
+          <div class="project__top">
+            <span class="project__idx" aria-hidden="true">04</span>
+            <h3 class="project__title">NetOps-dashboard</h3>
+            <span class="status status--wip">Under udvikling</span>
+          </div>
+          <p class="project__summary">Datadrevet overvågning der samler netværks- og sikkerhedsstatus ét sted.</p>
+          <div class="prose project__body">
+        <p>Idéen kom af irritation: for at finde ud af om noget var galt, skulle jeg logge på hver enkelt enhed og kigge manuelt. Det skalerer ikke, og det bliver ikke gjort.</p>
+        <ul><li>Indsamler tilgængelighed, interface-status og log-hændelser fra enhederne i labbet</li><li>Gemmer historik, så man kan se <strong>hvornår</strong> noget ændrede sig — ikke bare at det er galt lige nu. Det er forskellen på en alarm og en forklaring</li><li>Prioriterer få læsbare signaler frem for en væg af grafer som ingen kigger på</li><li>Bygget som et værktøj jeg selv vil bruge dagligt, ikke som en demo</li></ul>
+        <p>Status: dataindsamlingen kører, visningslaget er under opbygning.</p>
+          </div>
+          <ul class="tags" aria-label="Teknologier"><li class="tag">Python</li><li class="tag">SNMP</li><li class="tag">SQLite</li><li class="tag">REST API</li></ul>
+        </article>
+
+        <article class="project" data-tags="linux|ubuntu|vps|drift">
+          <div class="project__top">
+            <span class="project__idx" aria-hidden="true">05</span>
+            <h3 class="project__title">FiveM roleplay-server</h3>
+            <span class="status status--done">Afsluttet</span>
+          </div>
+          <p class="project__summary">Opsætning og drift af en spilserver på Ubuntu-VPS — mit første møde med rigtig Linux-drift.</p>
+          <div class="prose project__body">
+        <p>Det var her jeg første gang havde et Linux-system i hænderne som andre mennesker var afhængige af — og hvor konsekvensen af en fejl var synlig med det samme.</p>
+        <ul><li>Installation og konfiguration af server, ressourcer og den database der ligger bag</li><li>Fejlsøgning direkte i logs når serveren crashede eller en ressource brød — første gang jeg lærte at læse en stacktrace i stedet for at genstarte og håbe</li><li>Brugerstyring, backups og faste genstartsrutiner</li><li>Lærte på den hårde måde hvad filrettigheder, porte og manglende backups betyder i praksis</li></ul>
+        <p>Ikke et netværksprojekt, men det er projektet der gjorde Linux-terminalen til et sted jeg er hjemme.</p>
+          </div>
+          <ul class="tags" aria-label="Teknologier"><li class="tag">Linux</li><li class="tag">Ubuntu</li><li class="tag">VPS</li><li class="tag">Drift</li></ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="kompetencer">
+    <div class="wrap">
+      <h2 class="section__title"><span class="section__num" aria-hidden="true">03</span>Kompetencer</h2>
+      <div class="skills">
+        <section class="skill-group">
+          <h3>Netværk</h3>
+          <ul><li>VLAN, trunking &amp; inter-VLAN routing</li><li>EtherChannel (LACP)</li><li>Spanning Tree (STP/RSTP)</li><li>HSRP &amp; gateway-redundans</li><li>Statisk routing &amp; IP SLA</li><li>Subnetting / IPv4</li><li>DHCP &amp; DNS</li><li>Cisco IOS CLI</li><li>Pakkeanalyse med Wireshark (grundlæggende)</li></ul>
+        </section>
+        <section class="skill-group">
+          <h3>Sikkerhed</h3>
+          <ul><li>Port Security</li><li>AAA &amp; centraliseret adgangskontrol</li><li>SSH-hærdning (key-only, no root login)</li><li>ufw / firewall-regler</li><li>Netværkssegmentering</li><li>HTTPS/TLS &amp; certifikater</li><li>Least privilege &amp; filrettigheder</li></ul>
+        </section>
+        <section class="skill-group">
+          <h3>Systemer</h3>
+          <ul><li>Ubuntu / Debian</li><li>Linux CLI &amp; systemd</li><li>nginx (reverse proxy, statisk hosting)</li><li>Docker &amp; containere</li><li>Virtualisering</li><li>Windows Server (grundlæggende)</li><li>Fejlsøgning i logs</li></ul>
+        </section>
+        <section class="skill-group">
+          <h3>Automatisering</h3>
+          <ul><li>Python (scripting &amp; automatisering)</li><li>Bash</li><li>Git &amp; versionsstyring</li><li>Planlagte job (cron / systemd timers)</li><li>REST-API'er (grundlæggende)</li><li>Dokumentation som en del af arbejdet</li></ul>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--contact" id="kontakt">
+    <div class="wrap">
+      <h2 class="section__title"><span class="section__num" aria-hidden="true">04</span>Kontakt</h2>
+      <div class="contact">
+        <p class="contact__text">Leder du efter en lærling der gerne vil lære infrastruktur ordentligt? Så skriv — jeg svarer hurtigt, og jeg kommer gerne forbi til en snak.</p>
+        <a class="contact__mail" href="mailto:lucasmaj08@gmail.com">lucasmaj08@gmail.com</a>
+        <ul class="contact__meta">
+          <li><span class="hero__key">base</span>Midtjylland</li>
+          <li><span class="hero__key">status</span>Søger læreplads</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap site-footer__inner">
+    <p>&copy; 2026 Lucas</p>
+    <p class="site-footer__note">Statisk site · ren HTML, CSS og JS · ingen cookies, ingen tracking · serveret med nginx</p>
+  </div>
+</footer>
+
+<script src="assets/main.js?v=7df01df9" defer></script>
+</body>
+</html>

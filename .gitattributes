@@ -1,0 +1,8 @@
+# Normaliser linjeskift: LF i repoet og i arbejdskopien, saa filerne
+# er ens paa Windows og paa serveren.
+* text=auto eol=lf
+
+*.svg text eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary

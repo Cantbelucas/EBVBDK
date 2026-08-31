@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{NAME}} — {{ROLE}}</title>
+<meta name="description" content="{{DESCRIPTION}}">
+<meta name="author" content="{{NAME}}">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e12">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{NAME}} — {{ROLE}}">
+<meta property="og:description" content="{{DESCRIPTION}}">
+<meta property="og:locale" content="da_DK">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/styles.css{{CSS_V}}">
+</head>
+<body>
+<a class="skip-link" href="#main">Spring til indhold</a>
+
+<header class="site-header">
+  <div class="wrap site-header__inner">
+    <a class="brand" href="#top">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">{{NAME}}</span>
+    </a>
+    <nav class="nav" aria-label="Primær navigation">
+      <ul>
+        <li><a href="#om">Om</a></li>
+        <li><a href="#projekter">Projekter</a></li>
+        <li><a href="#kompetencer">Kompetencer</a></li>
+        <li><a href="#kontakt">Kontakt</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="hero" id="top">
+    <div class="wrap">
+      <p class="hero__status"><span class="pulse" aria-hidden="true"></span>{{SEEKING}}</p>
+      <h1 class="hero__name">{{NAME}}</h1>
+      <p class="hero__role">{{ROLE}}</p>
+      <p class="hero__tagline">{{TAGLINE}}</p>
+      <ul class="hero__meta">
+        <li><span class="hero__key">base</span>{{BASE}}</li>
+        <li><span class="hero__key">uddannelse</span>EUX · datatekniker</li>
+        <li><span class="hero__key">projekter</span>{{PROJECT_COUNT}}</li>
+      </ul>
+      <div class="hero__actions">
+        <a class="btn btn--primary" href="mailto:{{EMAIL}}">Skriv til mig</a>
+        <a class="btn" href="#projekter">Se projekter</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="om">
+    <div class="wrap">
+      <h2 class="section__title"><span class="section__num" aria-hidden="true">01</span>Om mig</h2>
+      <div class="prose prose--about">
+        {{ABOUT}}
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--projects" id="projekter">
+    <div class="wrap">
+      <h2 class="section__title"><span class="section__num" aria-hidden="true">02</span>Projekter</h2>
+      <p class="section__lead">Ting jeg har bygget, driftet eller ødelagt med vilje for at forstå dem.</p>
+
+      <div class="filters" id="filters" hidden>
+        <span class="filters__label" id="filters-label">Filtrér</span>
+        <div class="filters__list" role="group" aria-labelledby="filters-label">
+          {{FILTERS}}
+        </div>
+      </div>
+      <p class="filters__count" id="filters-count" role="status" aria-live="polite"></p>
+
+      <div class="projects" id="projects">
+        {{PROJECTS}}
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="kompetencer">
+    <div class="wrap">
+      <h2 class="section__title"><span class="section__num" aria-hidden="true">03</span>Kompetencer</h2>
+      <div class="skills">
+        {{SKILLS}}
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--contact" id="kontakt">
+    <div class="wrap">
+      <h2 class="section__title"><span class="section__num" aria-hidden="true">04</span>Kontakt</h2>
+      <div class="contact">
+        <p class="contact__text">Leder du efter en lærling der gerne vil lære infrastruktur ordentligt? Så skriv — jeg svarer hurtigt, og jeg kommer gerne forbi til en snak.</p>
+        <a class="contact__mail" href="mailto:{{EMAIL}}">{{EMAIL}}</a>
+        <ul class="contact__meta">
+          <li><span class="hero__key">base</span>{{BASE}}</li>
+          <li><span class="hero__key">status</span>{{SEEKING}}</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap site-footer__inner">
+    <p>&copy; {{YEAR}} {{NAME}}</p>
+    <p class="site-footer__note">Statisk site · ren HTML, CSS og JS · ingen cookies, ingen tracking · serveret med nginx</p>
+  </div>
+</footer>
+
+<script src="assets/main.js{{JS_V}}" defer></script>
+</body>
+</html>

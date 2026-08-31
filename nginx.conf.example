@@ -1,0 +1,65 @@
+# Eksempel paa server-blok. Laeg den i /etc/nginx/sites-available/portfolio
+# og link den ind:
+#   sudo ln -s /etc/nginx/sites-available/portfolio /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# Certifikatet kan hentes med certbot:
+#   sudo certbot --nginx -d dit-domaene.dk -d www.dit-domaene.dk
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name dit-domaene.dk www.dit-domaene.dk;
+
+    # Alt over HTTPS. Certbot indsaetter selv denne redirect, men den
+    # staar her saa opsaetningen er tydelig.
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name dit-domaene.dk www.dit-domaene.dk;
+
+    ssl_certificate     /etc/letsencrypt/live/dit-domaene.dk/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/dit-domaene.dk/privkey.pem;
+
+    root  /var/www/portfolio;
+    index index.html;
+
+    # Statisk site: findes filen ikke, er det en 404. Ingen fallback til
+    # index.html - der er ingen client-side router der skal fanges op.
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # Assets har ?v=<hash> i URL'en og kan derfor caches aggressivt.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # index.html maa aldrig caches laenge, ellers ser folk en gammel
+    # udgave efter et deploy.
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    gzip             on;
+    gzip_vary        on;
+    gzip_min_length  512;
+    gzip_types       text/plain text/css text/html application/javascript image/svg+xml;
+
+    add_header X-Content-Type-Options "nosniff"        always;
+    add_header X-Frame-Options        "SAMEORIGIN"     always;
+    add_header Referrer-Policy        "no-referrer"    always;
+
+    # Siden henter intet udefra, saa CSP'en kan vaere stram.
+    add_header Content-Security-Policy
+        "default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'" always;
+
+    # Skjul serverversion.
+    server_tokens off;
+}
