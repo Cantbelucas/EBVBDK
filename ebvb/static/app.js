@@ -1,6 +1,9 @@
 /* EBVB - faner, afspiller og negativ.
    Ingen afhaengigheder. Siden virker uden JS, den bliver bare mindre rar:
-   begge lister vises, og sporene hentes i stedet for at blive afspillet. */
+   begge lister vises, og sporene hentes i stedet for at blive afspillet.
+
+   Afspilningen styres fra baren i bunden. Panelet i siden er kun
+   detaljer om sporet og bliver skrevet af load(). */
 
 (function () {
   "use strict";
@@ -76,10 +79,26 @@
   var metaEl = document.getElementById("plate-meta");
   var dlEl = document.getElementById("plate-dl");
   var delEl = document.getElementById("plate-del");
+
+  var dBpm = document.getElementById("d-bpm");
+  var dKey = document.getElementById("d-key");
+  var dNoteWrap = document.getElementById("d-note-wrap");
+  var dNote = document.getElementById("d-note");
+  var dBy = document.getElementById("d-by");
+  var dDate = document.getElementById("d-date");
+  var dFile = document.getElementById("d-file");
+  var dLen = document.getElementById("d-len");
+
+  var deckImg = document.getElementById("deck-img");
+  var deckTitle = document.getElementById("deck-title");
+  var deckSub = document.getElementById("deck-sub");
+
   var playBtn = document.getElementById("play");
   var prevBtn = document.getElementById("prev");
   var nextBtn = document.getElementById("next");
+  var stopBtn = document.getElementById("stop");
   var seek = document.getElementById("seek");
+  var vol = document.getElementById("vol");
   var atEl = document.getElementById("at");
   var durEl = document.getElementById("dur");
 
@@ -87,6 +106,20 @@
   audio.preload = "metadata";
   var current = null;
   var scrubbing = false;
+
+  /* Lydstyrken skal huskes - ellers starter man paa fuld hver gang. */
+  var savedVol = 80;
+  try {
+    var raw = localStorage.getItem("ebvb-vol");
+    if (raw !== null) savedVol = Math.min(100, Math.max(0, parseInt(raw, 10) || 0));
+  } catch (e) {}
+  vol.value = String(savedVol);
+  audio.volume = savedVol / 100;
+
+  vol.addEventListener("input", function () {
+    audio.volume = vol.value / 100;
+    try { localStorage.setItem("ebvb-vol", vol.value); } catch (e) {}
+  });
 
   function clock(seconds) {
     if (!isFinite(seconds) || seconds < 0) return "0:00";
@@ -114,19 +147,41 @@
 
     plate.removeAttribute("data-empty");
     titleEl.textContent = row.dataset.title;
+    metaEl.textContent = row.dataset.by + " · " + row.dataset.date;
 
-    var meta = row.dataset.meta || "";
-    if (row.dataset.note) meta += " — " + row.dataset.note;
-    metaEl.textContent = meta;
+    dBpm.textContent = row.dataset.bpm || "—";
+    dKey.textContent = row.dataset.key || "—";
+    dBy.textContent = row.dataset.by || "—";
+    dDate.textContent = row.dataset.date || "—";
+    dFile.textContent = row.dataset.file || "—";
+    dLen.textContent = "—";
+
+    if (row.dataset.note) {
+      dNote.textContent = row.dataset.note;
+      dNoteWrap.hidden = false;
+    } else {
+      dNoteWrap.hidden = true;
+    }
+
+    deckTitle.textContent = row.dataset.title;
+    var sub = [];
+    if (row.dataset.bpm) sub.push(row.dataset.bpm + " BPM");
+    if (row.dataset.key) sub.push(row.dataset.key);
+    sub.push(row.dataset.by);
+    deckSub.textContent = sub.join(" · ");
 
     if (row.dataset.cover) {
       img.src = row.dataset.cover;
       img.hidden = false;
       blank.hidden = true;
+      deckImg.src = row.dataset.cover;
+      deckImg.hidden = false;
     } else {
       img.removeAttribute("src");
       img.hidden = true;
       blank.hidden = false;
+      deckImg.removeAttribute("src");
+      deckImg.hidden = true;
     }
 
     dlEl.href = row.dataset.dl;
@@ -169,7 +224,7 @@
     });
   });
 
-  /* Pladen skal ikke staa tom. Nyeste spor laegges paa med det samme,
+  /* Panelet skal ikke staa tomt. Nyeste spor laegges paa med det samme,
      uden at spille - saa er artworket det foerste man ser. */
   load(visibleRows()[0], false);
 
@@ -180,17 +235,25 @@
   prevBtn.addEventListener("click", function () { step(-1); });
   nextBtn.addEventListener("click", function () { step(1); });
 
+  /* Stop er ikke pause: den gaar tilbage til begyndelsen. */
+  stopBtn.addEventListener("click", function () {
+    audio.pause();
+    audio.currentTime = 0;
+    seek.value = 0;
+    atEl.textContent = "0:00";
+  });
+
   audio.addEventListener("play", function () {
     plate.classList.add("is-playing");
     document.body.classList.add("playing");
-    playBtn.textContent = "▮▮";
+    playBtn.textContent = "\u23F8";
     playBtn.setAttribute("aria-label", "Pause");
   });
 
   function stopped() {
     plate.classList.remove("is-playing");
     document.body.classList.remove("playing");
-    playBtn.textContent = "▶";
+    playBtn.textContent = "\u25B6";
     playBtn.setAttribute("aria-label", "Afspil");
   }
   audio.addEventListener("pause", stopped);
@@ -198,6 +261,7 @@
 
   audio.addEventListener("loadedmetadata", function () {
     durEl.textContent = clock(audio.duration);
+    dLen.textContent = clock(audio.duration);
   });
 
   audio.addEventListener("timeupdate", function () {
