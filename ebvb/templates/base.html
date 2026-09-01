@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="da" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}EBVB{% endblock %}</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#e9e9e7">
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Six+Caps&family=Mrs+Saint+Delafield&display=swap">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+<script src="{{ url_for('static', filename='theme.js') }}"></script>
+</head>
+<body class="{% block bodyclass %}{% endblock %}">
+<div class="grain" aria-hidden="true"></div>
+
+{% block chrome %}
+<a class="skip" href="#indhold">Spring til sporene</a>
+
+<header class="masthead">
+  <a class="wordmark" href="{{ url_for('index') }}">EBVB</a>
+  <p class="motto" aria-hidden="true">intet mere intet mindre</p>
+  <div class="masthead__end">
+    <button type="button" class="ghost" id="theme" aria-pressed="false">
+      <span data-theme-label>Negativ</span>
+    </button>
+    {% if user %}
+      <span class="who">{{ user.name }}</span>
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit" class="ghost">Log ud</button>
+      </form>
+    {% endif %}
+  </div>
+</header>
+{% endblock %}
+
+{% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <div class="notices" role="status">
+      {% for m in messages %}<p class="notice">{{ m }}</p>{% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+{% block body %}{% endblock %}
+
+<script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>

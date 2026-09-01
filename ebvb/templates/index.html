@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}{{ sections[active] }} — EBVB{% endblock %}
+
+{% block body %}
+<nav class="tabs" aria-label="Sektioner">
+  {% for slug, label in sections.items() %}
+    <a class="tab{% if slug == active %} is-active{% endif %}"
+       href="{{ url_for('section', slug=slug) }}"
+       data-tab="{{ slug }}"
+       {% if slug == active %}aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+  <button type="button" class="solid tabs__add" data-open-upload>Læg op</button>
+</nav>
+
+<main class="stage" id="indhold">
+
+  <!-- Pladen: det spor der er valgt. Coveret vender paa hovedet naar der spilles. -->
+  <aside class="plate" id="plate" data-empty>
+    <div class="plate__art">
+      <img class="plate__img" id="plate-img" alt="" hidden>
+      <p class="plate__blank" id="plate-blank">EBVB</p>
+    </div>
+    <h2 class="plate__title" id="plate-title">Vælg et spor</h2>
+    <p class="plate__meta" id="plate-meta">Listen til højre. Klik på titlen.</p>
+
+    <div class="transport">
+      <button type="button" class="tbtn" id="prev" title="Forrige" aria-label="Forrige spor">&#9668;&#9668;</button>
+      <button type="button" class="tbtn tbtn--play" id="play" aria-label="Afspil">&#9654;</button>
+      <button type="button" class="tbtn" id="next" title="Næste" aria-label="Næste spor">&#9658;&#9658;</button>
+      <span class="clock"><span id="at">0:00</span> / <span id="dur">0:00</span></span>
+    </div>
+
+    <label class="seek">
+      <span class="sr">Position i sporet</span>
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1" disabled>
+    </label>
+
+    <div class="plate__acts">
+      <a class="ghost" id="plate-dl" href="#" hidden>Hent filen</a>
+      <form method="post" id="plate-del" hidden
+            onsubmit="return confirm('Slet sporet for altid?')">
+        <button type="submit" class="ghost ghost--warn">Slet</button>
+      </form>
+    </div>
+  </aside>
+
+  <div class="lists">
+    {% for slug, label in sections.items() %}
+      <section class="list" data-section="{{ slug }}"
+               {% if slug != active %}hidden{% endif %}
+               aria-label="{{ label }}">
+        {% set rows = tracks[slug] %}
+        {% if rows %}
+          <p class="list__head">
+            <span>Nr.</span><span>Titel</span><span>Detaljer</span>
+          </p>
+          {% for t in rows %}
+            <article class="row" id="{{ t.id }}"
+                     data-id="{{ t.id }}"
+                     data-title="{{ t.title }}"
+                     data-src="{{ url_for('audio_stream', track_id=t.id) }}"
+                     data-dl="{{ url_for('download', track_id=t.id) }}"
+                     data-cover="{% if t.cover_file %}{{ url_for('cover_image', track_id=t.id) }}{% endif %}"
+                     data-meta="{% if t.bpm %}{{ t.bpm }} BPM · {% endif %}{% if t.mkey %}{{ t.mkey }} · {% endif %}{{ t.uploader }} · {{ dk_date(t.created_at) }} · {{ human_size(t.audio_size) }}"
+                     data-note="{{ t.note }}"
+                     {% if user.is_admin or t.uploader_id == user.id %}data-own="1"{% endif %}>
+              <span class="row__idx" aria-hidden="true">{{ '%02d' % (rows|length - loop.index0) }}</span>
+              <span class="row__art">
+                {% if t.cover_file %}
+                  <img src="{{ url_for('cover_image', track_id=t.id) }}" alt="" loading="lazy">
+                {% endif %}
+              </span>
+              <button type="button" class="row__hit">
+                <span class="row__title">{{ t.title }}</span>
+                <span class="row__sub">
+                  {%- if t.bpm %}{{ t.bpm }} BPM · {% endif -%}
+                  {%- if t.mkey %}{{ t.mkey }} · {% endif -%}
+                  {{ t.uploader }} · {{ dk_date(t.created_at) }}
+                </span>
+              </button>
+              <span class="row__state" aria-hidden="true">spiller</span>
+            </article>
+          {% endfor %}
+        {% else %}
+          <div class="empty">
+            <p class="empty__line">Ingen {{ label|lower }} endnu.</p>
+            <button type="button" class="solid" data-open-upload data-section="{{ slug }}">
+              Læg den første op
+            </button>
+          </div>
+        {% endif %}
+      </section>
+    {% endfor %}
+  </div>
+</main>
+
+<dialog class="sheet" id="upload">
+  <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data"
+        class="sheet__form" id="upload-form">
+    <h2 class="sheet__title">Læg op</h2>
+
+    <fieldset class="pick">
+      <legend class="field__label">Hvor</legend>
+      {% for slug, label in sections.items() %}
+        <label class="pick__opt">
+          <input type="radio" name="section" value="{{ slug }}"
+                 {% if slug == active %}checked{% endif %}>
+          <span>{{ label }}</span>
+        </label>
+      {% endfor %}
+    </fieldset>
+
+    <label class="field">
+      <span class="field__label">Lydfil</span>
+      <input type="file" name="audio" id="audio-input" required
+             accept=".wav,.mp3,.m4a,.aac,.flac,.ogg,.opus,.aif,.aiff,audio/*">
+      <span class="field__hint">wav, mp3, m4a, flac eller aiff. Op til 512 MB.</span>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Cover</span>
+      <input type="file" name="cover" accept="image/*">
+      <span class="field__hint">Kvadratisk billede ser bedst ud. Kan udelades.</span>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Titel</span>
+      <input name="title" id="title-input" maxlength="120"
+             placeholder="Tages fra filnavnet hvis du lader den stå tom">
+    </label>
+
+    <div class="pair">
+      <label class="field">
+        <span class="field__label">BPM</span>
+        <input name="bpm" inputmode="numeric" maxlength="8" placeholder="140">
+      </label>
+      <label class="field">
+        <span class="field__label">Toneart</span>
+        <input name="mkey" maxlength="12" placeholder="Fm">
+      </label>
+    </div>
+
+    <label class="field">
+      <span class="field__label">Note</span>
+      <input name="note" maxlength="400" placeholder="Fx: mangler mix på omkvædet">
+    </label>
+
+    <div class="sheet__acts">
+      <button type="button" class="ghost" data-close-upload>Fortryd</button>
+      <button type="submit" class="solid" id="upload-go">Læg op</button>
+    </div>
+    <p class="sheet__wait" id="upload-wait" hidden>Sender filen. Luk ikke fanen.</p>
+  </form>
+</dialog>
+{% endblock %}

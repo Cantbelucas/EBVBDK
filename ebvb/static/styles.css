@@ -1,0 +1,689 @@
+/* ============================================================
+   EBVB - privat lytterum.
+
+   Ingen accentfarve. Papir og blaek, intet andet. Det eneste
+   farvede paa siden er det artwork brugerne selv laegger op.
+   Dark mode er ikke en anden palet - det er negativet: de samme
+   to toner byttet om.
+
+   Signaturen: det spor der spiller, staar paa hovedet.
+   ============================================================ */
+
+:root {
+  --paper:     #e9e9e7;
+  --paper-2:   #dfdedb;
+  --ink:       #0d0d0c;
+  --ink-2:     #56564f;
+  --hair:      rgba(13, 13, 12, 0.22);
+  --hair-soft: rgba(13, 13, 12, 0.10);
+  --grain:     multiply;
+  --grain-a:   0.045;
+
+  --display: "Six Caps", "Oswald", "Arial Narrow", "Haettenschweiler", sans-serif;
+  --script:  "Mrs Saint Delafield", "Segoe Script", "Snell Roundhand", cursive;
+  --mono:    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --gut: clamp(18px, 4vw, 44px);
+  --shelf: 1240px;
+}
+
+[data-theme="dark"] {
+  --paper:     #0d0d0c;
+  --paper-2:   #171716;
+  --ink:       #e9e9e7;
+  --ink-2:     #8b8b84;
+  --hair:      rgba(233, 233, 231, 0.24);
+  --hair-soft: rgba(233, 233, 231, 0.11);
+  --grain:     screen;
+  --grain-a:   0.05;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, p, fieldset, legend { margin: 0; padding: 0; border: 0; }
+
+/* Fotokopi-kornet. Ligger over alt, rammer intet. */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  pointer-events: none;
+  opacity: var(--grain-a);
+  mix-blend-mode: var(--grain);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip {
+  position: absolute;
+  left: 12px; top: -80px;
+  z-index: 950;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 12px 18px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+.skip:focus { top: 12px; }
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* ---------- Maerke og motto ---------- */
+
+.wordmark {
+  font-family: var(--display);
+  font-size: 58px;
+  line-height: 0.62;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  text-decoration: none;
+  display: block;
+}
+.wordmark--xl {
+  font-size: clamp(118px, 25vw, 250px);
+  line-height: 0.80;
+  letter-spacing: 0.04em;
+}
+
+.motto {
+  font-family: var(--script);
+  font-size: 26px;
+  line-height: 1;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.motto--xl { font-size: clamp(34px, 7vw, 62px); margin-top: 0.06em; }
+
+/* ---------- Masthead ---------- */
+
+.masthead {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px var(--gut) 10px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--hair);
+}
+
+.masthead .motto { display: none; }
+@media (min-width: 860px) { .masthead .motto { display: block; } }
+
+.masthead__end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.masthead__end form { margin: 0; }
+
+.who {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  padding-inline: 8px;
+}
+
+/* ---------- Knapper ---------- */
+
+.solid, .ghost {
+  font: inherit;
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 11px 18px;
+  border-radius: 0;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  transition: background 0.12s linear, color 0.12s linear, border-color 0.12s linear;
+}
+
+.solid {
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--ink);
+}
+.solid:hover { background: transparent; color: var(--ink); }
+
+.ghost {
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid transparent;
+}
+.ghost:hover { color: var(--ink); border-color: var(--hair); }
+.ghost--warn:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+/* ---------- Beskeder ---------- */
+
+.notices {
+  margin: 0 var(--gut);
+  border-bottom: 1px solid var(--hair);
+}
+.notice {
+  padding: 12px 0;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.notice::before { content: "— "; color: var(--ink-2); }
+
+/* ---------- Fanerne: to ord, ikke mere ---------- */
+
+.tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: clamp(18px, 4vw, 46px);
+  padding: clamp(14px, 3vw, 30px) var(--gut) 0;
+  max-width: var(--shelf);
+  margin-inline: auto;
+}
+
+.tab {
+  font-family: var(--display);
+  font-size: clamp(66px, 13vw, 138px);
+  line-height: 0.72;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--hair);
+  transition: color 0.15s linear, -webkit-text-stroke-color 0.15s linear;
+}
+.tab:hover { -webkit-text-stroke-color: var(--ink); }
+.tab.is-active {
+  color: var(--ink);
+  -webkit-text-stroke-color: var(--ink);
+}
+
+/* Browsere uden text-stroke faar bare en daempet farve. */
+@supports not (-webkit-text-stroke: 1px black) {
+  .tab { color: var(--hair); }
+  .tab.is-active { color: var(--ink); }
+}
+
+.tabs__add {
+  margin-left: auto;
+  margin-bottom: 10px;
+  flex: none;
+}
+
+/* ---------- Scenen ---------- */
+
+.stage {
+  max-width: var(--shelf);
+  margin-inline: auto;
+  padding: 0 var(--gut) 90px;
+  display: grid;
+  gap: 0 clamp(24px, 4vw, 52px);
+  border-top: 1px solid var(--ink);
+  margin-top: clamp(14px, 2vw, 24px);
+}
+
+@media (min-width: 900px) {
+  .stage { grid-template-columns: minmax(0, 1fr) 340px; }
+  .lists { grid-column: 1; grid-row: 1; }
+  .plate { grid-column: 2; grid-row: 1; }
+}
+
+/* ---------- Pladen ---------- */
+
+.plate {
+  padding-top: 26px;
+  align-self: start;
+}
+@media (min-width: 900px) {
+  .plate {
+    position: sticky;
+    top: 92px;
+    border-left: 1px solid var(--hair);
+    padding-left: clamp(20px, 3vw, 34px);
+    margin-left: -1px;
+  }
+}
+
+.plate__art {
+  position: relative;
+  aspect-ratio: 1;
+  border: 1px solid var(--ink);
+  background: var(--paper-2);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.plate__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  grid-area: 1 / 1;
+  transition: transform 0.75s cubic-bezier(0.66, 0, 0.16, 1);
+}
+/* display:block ovenfor slaar browserens egen [hidden]-regel ihjel. */
+.plate__img[hidden] { display: none; }
+
+/* Signaturen. Det spor der spiller, staar paa hovedet - som manden
+   i midten paa coveret. */
+.plate.is-playing .plate__img { transform: rotate(180deg); }
+
+.plate__blank {
+  font-family: var(--display);
+  font-size: 84px;
+  line-height: 0.7;
+  letter-spacing: 0.08em;
+  color: var(--hair);
+}
+
+.plate__title {
+  font-family: var(--display);
+  font-size: clamp(40px, 4.6vw, 58px);
+  line-height: 0.78;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+  margin-top: 18px;
+  overflow-wrap: anywhere;
+}
+
+.plate__meta {
+  margin-top: 10px;
+  font-size: 11.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.plate[data-empty] .plate__acts { visibility: hidden; }
+
+.plate__acts {
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
+  margin-left: -18px;
+}
+.plate__acts form { margin: 0; }
+
+/* ---------- Transport ---------- */
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 18px;
+}
+
+.tbtn {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  width: 38px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--hair);
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.12s linear, color 0.12s linear, border-color 0.12s linear;
+}
+.tbtn:hover:not(:disabled) { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.tbtn:disabled { opacity: 0.35; cursor: default; }
+.tbtn--play { width: 54px; font-size: 13px; }
+
+.clock {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.seek { display: block; margin-top: 12px; }
+
+#seek {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  background: transparent;
+  cursor: pointer;
+}
+#seek:disabled { cursor: default; opacity: 0.4; }
+#seek::-webkit-slider-runnable-track { height: 1px; background: var(--hair); }
+#seek::-moz-range-track { height: 1px; background: var(--hair); }
+#seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 3px; height: 15px;
+  margin-top: -7px;
+  background: var(--ink);
+  border: 0; border-radius: 0;
+}
+#seek::-moz-range-thumb {
+  width: 3px; height: 15px;
+  background: var(--ink);
+  border: 0; border-radius: 0;
+}
+
+/* ---------- Listen ---------- */
+
+.lists { padding-top: 26px; }
+
+.list__head,
+.row {
+  display: grid;
+  grid-template-columns: 34px 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.list__head {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--hair);
+}
+.list__head span:nth-child(2) { grid-column: 2 / 4; }
+.list__head span:nth-child(3) { text-align: right; }
+
+.row {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--hair-soft);
+  position: relative;
+}
+.row:hover { background: var(--paper-2); }
+.row:hover .row__idx { color: var(--ink); }
+
+.row__idx {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  text-align: center;
+  padding: 3px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.row__art {
+  width: 46px; height: 46px;
+  border: 1px solid var(--hair);
+  background: var(--paper-2);
+  overflow: hidden;
+}
+.row__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.row__hit {
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+.row__hit::after {
+  /* Hele raekken er klikbar, men det er knappen der har fokus. */
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.row__title {
+  display: block;
+  font-size: 14px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row__sub {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.row__state {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  background: var(--ink);
+  color: var(--paper);
+  visibility: hidden;
+}
+body.playing .row.is-current .row__state { visibility: visible; }
+.row.is-current .row__idx {
+  background: var(--ink);
+  color: var(--paper);
+}
+.row.is-current .row__title { font-weight: 700; }
+
+/* ---------- Tomt ---------- */
+
+.empty {
+  padding: 60px 0 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+  border-bottom: 1px solid var(--hair-soft);
+}
+.empty__line {
+  font-family: var(--display);
+  font-size: clamp(38px, 6vw, 62px);
+  line-height: 0.8;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* ---------- Felter ---------- */
+
+.field { display: block; margin-bottom: 18px; }
+
+.field__label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 7px;
+}
+
+.field input {
+  font: inherit;
+  font-size: 14px;
+  width: 100%;
+  background: transparent;
+  color: var(--ink);
+  border: 0;
+  border-bottom: 1px solid var(--hair);
+  border-radius: 0;
+  padding: 8px 0;
+}
+.field input:focus { outline: 0; border-bottom-color: var(--ink); }
+.field input::placeholder { color: var(--ink-2); opacity: 0.7; }
+.field input[type="file"] { font-size: 12px; padding: 10px 0; }
+.field input[type="file"]::file-selector-button {
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-right: 12px;
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--hair);
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.field__hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+.pick { margin-bottom: 20px; }
+.pick__opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 20px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.pick__opt input { accent-color: var(--ink); }
+
+/* ---------- Upload-arket ---------- */
+
+.sheet {
+  width: min(520px, calc(100vw - 32px));
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+}
+.sheet::backdrop { background: rgba(0, 0, 0, 0.6); }
+
+.sheet__form { padding: clamp(22px, 4vw, 34px); }
+
+.sheet__title {
+  font-family: var(--display);
+  font-size: 64px;
+  line-height: 0.72;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 22px;
+}
+
+.sheet__acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 26px;
+}
+
+.sheet__wait {
+  margin-top: 14px;
+  text-align: right;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* ---------- Login ---------- */
+
+.is-gate { display: grid; place-items: center; }
+
+.gate__theme { position: fixed; top: 14px; right: 14px; z-index: 60; }
+
+.gate {
+  width: min(420px, calc(100vw - 40px));
+  padding: 40px 0 60px;
+}
+
+.gate__mark { margin-bottom: 46px; }
+.gate__mark .wordmark { text-align: center; }
+.gate__mark .motto { text-align: center; }
+
+.gate__form .solid { width: 100%; margin-top: 8px; }
+
+.gate__note {
+  margin-top: 18px;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  text-align: center;
+}
+
+/* ---------- Mindre skaerme ---------- */
+
+@media (max-width: 899px) {
+  .plate {
+    position: sticky;
+    top: 66px;
+    z-index: 40;
+    background: var(--paper);
+    padding: 16px 0;
+    border-bottom: 1px solid var(--hair);
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    grid-template-areas:
+      "art title"
+      "art meta"
+      "art transport";
+    column-gap: 16px;
+    align-content: start;
+  }
+  .plate__art { grid-area: art; width: 96px; }
+  .plate__blank { font-size: 34px; }
+  .plate__title {
+    grid-area: title;
+    margin-top: 0;
+    font-size: 34px;
+  }
+  .plate__meta { grid-area: meta; margin-top: 4px; }
+  .transport { grid-area: transport; margin-top: 10px; }
+  .seek, .plate__acts { display: none; }
+  .lists { padding-top: 18px; }
+
+  .list__head, .row { grid-template-columns: 26px 40px minmax(0, 1fr) auto; gap: 10px; }
+  .row__art { width: 40px; height: 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  /* Uden bevaegelse er vendingen ikke laesbar som tilstand. Saa markeres
+     det spillende spor med en tyk ramme i stedet. */
+  .plate.is-playing .plate__img { transform: none; }
+  .plate.is-playing .plate__art { outline: 5px solid var(--ink); outline-offset: -6px; }
+}

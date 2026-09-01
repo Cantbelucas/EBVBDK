@@ -1,0 +1,114 @@
+# EBVB paa ebvb.dk. Erstatter den blok der i dag sender videre til
+# Nextcloud paa 127.0.0.1:8080.
+#
+# Trafikvejen er den samme som for:
+#   Bruger -> Cloudflare (TLS + filter) -> nginx (443) -> 127.0.0.1:8090
+# Containeren binder kun til localhost og kan ikke naas udenom nginx.
+#
+#   sudo cp nginx.ebvb.conf.example /etc/nginx/sites-available/ebvb
+#   sudo ln -s /etc/nginx/sites-available/ebvb /etc/nginx/sites-enabled/
+#   sudo rm /etc/nginx/sites-enabled/nextcloud
+#   sudo nginx -t && sudo systemctl reload nginx
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ebvb.dk www.ebvb.dk;
+    return 301 https://ebvb.dk$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name www.ebvb.dk;
+
+    ssl_certificate     /etc/letsencrypt/live/ebvb.dk/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ebvb.dk/privkey.pem;
+
+    return 301 https://ebvb.dk$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ebvb.dk;
+
+    ssl_certificate     /etc/letsencrypt/live/ebvb.dk/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ebvb.dk/privkey.pem;
+
+    # Samme graense som MAX_BYTES i app.py. De to skal folges ad.
+    #
+    # ADVARSEL: Cloudflares gratis- og Pro-planer afviser selv request
+    # bodies over 100 MB, for de naar herned. Denne linje kan altsaa ikke
+    # alene give jer 512 MB uploads. Se DEPLOY.md, afsnittet om Cloudflare.
+    client_max_body_size 512M;
+
+    # En stor wav over en dansk upload tager tid. Standard er 60s.
+    client_body_timeout 300s;
+    proxy_read_timeout  300s;
+    proxy_send_timeout  300s;
+
+    location / {
+        proxy_pass http://127.0.0.1:8090;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Lyd hentes med Range-forespoergsler. Bufring her ville tvinge
+        # nginx til at hente hele filen for den sender noget videre, og
+        # saa kan man ikke spole i en 40 MB wav.
+        proxy_buffering off;
+    }
+
+    gzip             on;
+    gzip_vary        on;
+    gzip_min_length  512;
+    gzip_types       text/plain text/css application/javascript image/svg+xml;
+
+    add_header X-Content-Type-Options "nosniff"     always;
+    add_header X-Frame-Options        "DENY"        always;
+    add_header Referrer-Policy        "same-origin" always;
+
+    # Siden henter kun to fonte udefra. Selvhoster du dem (se README),
+    # kan style-src og font-src skaeres ned til 'self'.
+    add_header Content-Security-Policy
+        "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" always;
+
+    server_tokens off;
+}
+
+
+# --------------------------------------------------------------------
+# Vil du beholde Nextcloud, saa flyt den herned i stedet for at slette
+# den. Kraever en A-record for cloud.ebvb.dk og et certifikat:
+#
+#   sudo certbot --nginx -d cloud.ebvb.dk
+#
+# og i Nextclouds config.php:
+#   'overwrite.cli.url' => 'https://cloud.ebvb.dk',
+#   'trusted_domains'   => ['cloud.ebvb.dk'],
+# --------------------------------------------------------------------
+#
+# server {
+#     listen 443 ssl;
+#     http2 on;
+#     server_name cloud.ebvb.dk;
+#
+#     ssl_certificate     /etc/letsencrypt/live/cloud.ebvb.dk/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/cloud.ebvb.dk/privkey.pem;
+#
+#     client_max_body_size 512M;
+#
+#     location / {
+#         proxy_pass http://127.0.0.1:8080;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host              $host;
+#         proxy_set_header X-Real-IP         $remote_addr;
+#         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#     }
+# }

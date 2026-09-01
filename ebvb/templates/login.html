@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Log ind — EBVB{% endblock %}
+{% block bodyclass %}is-gate{% endblock %}
+
+{% block chrome %}
+<div class="grain" aria-hidden="true"></div>
+<button type="button" class="ghost gate__theme" id="theme" aria-pressed="false">
+  <span data-theme-label>Negativ</span>
+</button>
+{% endblock %}
+
+{% block body %}
+<main class="gate">
+  <div class="gate__mark">
+    <p class="wordmark wordmark--xl">EBVB</p>
+    <p class="motto motto--xl">intet mere intet mindre</p>
+  </div>
+
+  <form class="gate__form" method="post" action="{{ url_for('login') }}">
+    <input type="hidden" name="next" value="{{ next }}">
+
+    <label class="field">
+      <span class="field__label">Navn</span>
+      <input name="name" autocomplete="username" autocapitalize="none"
+             spellcheck="false" required autofocus>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Kodeord</span>
+      <input name="password" type="password" autocomplete="current-password" required>
+    </label>
+
+    <button type="submit" class="solid">Log ind</button>
+    <p class="gate__note">Kun for gruppen. Konti oprettes fra serveren.</p>
+  </form>
+</main>
+{% endblock %}

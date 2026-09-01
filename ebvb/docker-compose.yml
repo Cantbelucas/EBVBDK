@@ -1,0 +1,15 @@
+services:
+  ebvb:
+    build: .
+    container_name: ebvb
+    restart: unless-stopped
+    # Kun lokalt. Den maa aldrig kunne naas udenom nginx.
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - ./data:/data
+    environment:
+      EBVB_DATA: /data
+      # Saet den her, hvis du hellere vil styre noeglen selv end lade
+      # appen laegge en i ./data/secret_key:
+      # EBVB_SECRET_KEY: "..."

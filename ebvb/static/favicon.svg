@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="EBVB">
+  <rect width="32" height="32" fill="#0d0d0c"/>
+  <g fill="#e9e9e7">
+    <rect x="4"  y="9" width="3" height="15"/>
+    <rect x="10" y="9" width="3" height="15"/>
+    <!-- Den tredje haenger fra toppen. Manden paa hovedet. -->
+    <rect x="16" y="0" width="3" height="15"/>
+    <rect x="22" y="9" width="3" height="15"/>
+  </g>
+</svg>
