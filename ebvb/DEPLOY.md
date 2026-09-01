@@ -9,6 +9,12 @@ over, beslutter du om den skal slukkes.
 Jeg har ikke adgang til din server, så alt herunder kører du selv.
 Kommandoer med `dinserver` og `nextcloud` skal have dine rigtige navne.
 
+**Shell:** kommandoerne er skrevet til at blive indsat i PowerShell på din
+Windows-maskine. Alt inde i anførselstegnene efter `ssh` bliver kørt af
+bash på serveren — derfor er `&&` og pipes derinde helt i orden, selvom
+PowerShell ikke selv forstår `&&`. Kører du en kommando *lokalt* med
+`&&`, deler du den op i to linjer i stedet.
+
 ---
 
 ## 0. Før du går i gang
@@ -62,7 +68,8 @@ rsync -av --exclude data --exclude __pycache__ ebvb/ lucas@dinserver:/opt/ebvb/
 
 `--exclude data` er ikke til forhandling. Uden den overskriver du
 serverens database med din lokale, tomme. `deploy.sh` gør det samme og
-har den indbygget.
+har den indbygget — men både `rsync` og `deploy.sh` kræver Git Bash,
+ikke PowerShell. Har du ikke det, er git-vejen ovenfor den lette.
 
 ---
 
@@ -192,8 +199,12 @@ Cloudflare skal ikke ændres. Der er ingen DNS-ændring i det her trin.
 ## 6. Tjek
 
 ```bash
-curl -sI https://ebvb.dk/ | head -3
+curl.exe -sI https://ebvb.dk/
 ```
+
+`.exe` er ikke en tastefejl. Uden den rammer du PowerShells eget alias
+for `Invoke-WebRequest`, som ikke forstår `-sI`. Den rigtige curl ligger
+i `C:\Windows\System32` på Windows 11.
 
 Så i en browser: log ind, spil et spor, spol i det, hent en fil, og læg
 en ny op. Prøv den i inkognito for at bekræfte at login rent faktisk
@@ -269,7 +280,7 @@ kørt et stykke tid uden overraskelser.
 Alt der betyder noget ligger i `/opt/ebvb/data`:
 
 ```bash
-ssh lucas@dinserver "sudo tar czf ~/ebvb-\$(date +%F).tar.gz -C /opt/ebvb data"
+ssh lucas@dinserver 'sudo tar czf ~/ebvb-$(date +%F).tar.gz -C /opt/ebvb data'
 ```
 
 Sæt den i cron ugentligt når du har fået den til at køre en gang i
