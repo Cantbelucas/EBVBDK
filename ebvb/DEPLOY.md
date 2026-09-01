@@ -28,14 +28,41 @@ ssh lucas@dinserver "sudo cp /etc/nginx/sites-available/nextcloud ~/nextcloud.ng
 
 ---
 
-## 1. Kopiér koden op
+## 1. Hent koden ned på serveren
+
+Repoet er offentligt, så serveren kan klone det uden nøgler. Klon hele
+repoet ét sted, og lav `/opt/ebvb` til et link ind i app-mappen — så
+passer alle kommandoerne herunder, og en opdatering er ét `git pull`.
+
+```bash
+ssh lucas@dinserver "sudo git clone https://github.com/Cantbelucas/EBVBDK.git /opt/ebvb-src && sudo ln -s /opt/ebvb-src/ebvb /opt/ebvb && ls -l /opt/ebvb/"
+```
+
+Er branchen ikke merget til `main` endnu, så skift over til den:
+
+```bash
+ssh lucas@dinserver "cd /opt/ebvb-src && sudo git checkout ebvb-lytterum"
+```
+
+Opdatering fremover, når du har pushet noget nyt:
+
+```bash
+ssh lucas@dinserver "cd /opt/ebvb-src && sudo git pull && cd /opt/ebvb && docker compose up -d --build"
+```
+
+`data/` er gitignoreret og ligger uden for det git rører ved, så et
+`git pull` kan ikke overskrive databasen eller lydfilerne.
+
+**Alternativ uden git på serveren** — hvis du hellere vil skubbe fra din
+egen maskine, som du gør med portfolioen:
 
 ```bash
 rsync -av --exclude data --exclude __pycache__ ebvb/ lucas@dinserver:/opt/ebvb/
 ```
 
-`--exclude data` er vigtig. Uden den overskriver du serverens database
-med din lokale.
+`--exclude data` er ikke til forhandling. Uden den overskriver du
+serverens database med din lokale, tomme. `deploy.sh` gør det samme og
+har den indbygget.
 
 ---
 
