@@ -203,6 +203,7 @@ h1, h2, h3, p, fieldset, legend { margin: 0; padding: 0; border: 0; }
 }
 
 .masthead__mark { display: flex; align-items: baseline; gap: 18px; }
+.masthead .wordmark { position: relative; top: 0.13em; }
 .masthead .motto { display: none; }
 @media (min-width: 860px) { .masthead .motto { display: block; } }
 
@@ -321,6 +322,15 @@ h1, h2, h3, p, fieldset, legend { margin: 0; padding: 0; border: 0; }
   flex-wrap: wrap-reverse;
   align-items: flex-start;
   gap: clamp(16px, 2.4vw, 26px);
+}
+
+@media (min-width: 900px) {
+  /* Listen til venstre, pladen til hoejre. nowrap er noedvendig for at
+     order overhovedet betyder noget her - med wrap-reverse styrer den
+     ogsaa hvilken linje der havner overst. */
+  .stage { flex-wrap: nowrap; }
+  .lists { order: 1; }
+  .plate { order: 2; }
 }
 
 /* ---------- Detaljepanelet ---------- */
