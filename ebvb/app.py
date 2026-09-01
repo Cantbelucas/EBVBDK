@@ -30,6 +30,7 @@ import sys
 import unicodedata
 import uuid
 from datetime import datetime, timezone
+from hashlib import sha1
 from pathlib import Path
 
 from flask import (
@@ -193,6 +194,27 @@ def current_user():
     return g.user
 
 
+_ASSET_V = {}
+
+
+def asset(filename):
+    """Statisk fil med ?v=<hash> bag URL'en.
+
+    Uden den serverer browseren - og Cloudflare - den gamle styles.css
+    efter et deploy, og siden ser uaendret ud selvom koden er ny.
+    Hashen regnes en gang pr. proces; imaget bygges om ved hvert deploy,
+    saa den folger med af sig selv.
+    """
+    if filename not in _ASSET_V:
+        try:
+            digest = sha1((ROOT / "static" / filename).read_bytes()).hexdigest()[:8]
+        except OSError:
+            digest = "0"
+        _ASSET_V[filename] = digest
+    return "{0}?v={1}".format(
+        url_for("static", filename=filename), _ASSET_V[filename])
+
+
 @app.context_processor
 def inject():
     return {
@@ -200,6 +222,7 @@ def inject():
         "sections": SECTIONS,
         "dk_date": dk_date,
         "human_size": human_size,
+        "asset": asset,
     }
 
 

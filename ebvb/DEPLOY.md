@@ -1,3 +1,41 @@
+# Deploy
+
+## Sådan ser det ud i drift
+
+Omlægningen er gennemført. `ebvb.dk` kører appen, `cv.ebvb.dk` kører
+portfolioen. Opsætningen på serveren ligger i `~/stack`:
+
+```
+Bruger → Cloudflare → nginx-container (80/443 på værten)
+                          ├─ cv.ebvb.dk  → filer fra ~/stack/portfolio
+                          └─ ebvb.dk     → ebvb-containeren på 8090
+```
+
+Begge containere ligger på Docker-netværket `stack_web`. **App-containeren
+er ikke publiceret til værten** — den kan kun nås gennem nginx, hvilket er
+med vilje. Nginx' konfiguration ligger i `~/stack/nginx/conf.d/`, og
+certifikaterne er Cloudflare Origin CA fra `/etc/ssl/cloudflare`.
+
+Et deploy er `~/deploy.sh` på serveren: den henter fra GitHub, bygger
+portfolioen, genbygger app-imaget og starter containeren.
+
+**To fælder der har bidt før:**
+
+1. `--build` genskaber app-containeren og giver den en ny IP. Nginx slår
+   kun upstream-navnet op ved indlæsning, så den holder fast i den gamle
+   og svarer 502. `nginx.ebvb.conf.example` løser det permanent med
+   `resolver 127.0.0.11` og en variabel i `proxy_pass`. Indtil de linjer
+   står i din `musik.conf`, skal du køre `docker exec nginx nginx -s reload`
+   efter hvert deploy.
+2. Browseren og Cloudflare cacher `styles.css` og `app.js`. Appen sætter
+   nu `?v=<hash>` bag dem, så en ny udgave får en ny URL. Ser du alligevel
+   den gamle side, er det en cache fra før den rettelse — Ctrl+F5.
+
+Resten af dokumentet er selve omlægningen fra Nextcloud, som er
+historik nu, men står tilbage som opskrift hvis noget skal gøres om.
+
+---
+
 # Sæt EBVB på ebvb.dk i stedet for Nextcloud
 
 Rækkefølgen her er valgt så siden aldrig er nede mere end den ene

@@ -1,14 +1,20 @@
-# EBVB paa ebvb.dk. Erstatter den blok der i dag sender videre til
-# Nextcloud paa 127.0.0.1:8080.
+# EBVB paa ebvb.dk.
 #
-# Trafikvejen er den samme som for:
-#   Bruger -> Cloudflare (TLS + filter) -> nginx (443) -> 127.0.0.1:8090
-# Containeren binder kun til localhost og kan ikke naas udenom nginx.
+# Det her matcher opsaetningen i ~/stack: nginx koerer selv i en
+# container og publicerer 80/443 paa vaerten. App-containeren er IKKE
+# publiceret til vaerten - den er kun naabar inde paa Dockers netvaerk
+# (stack_web). Det er med vilje: appen kan ikke naas udenom nginx.
 #
-#   sudo cp nginx.ebvb.conf.example /etc/nginx/sites-available/ebvb
-#   sudo ln -s /etc/nginx/sites-available/ebvb /etc/nginx/sites-enabled/
-#   sudo rm /etc/nginx/sites-enabled/nextcloud
-#   sudo nginx -t && sudo systemctl reload nginx
+#   Bruger -> Cloudflare -> nginx-container (443) -> ebvb-container (8090)
+#
+# Filen hoerer til i ~/stack/nginx/conf.d/musik.conf, som er mountet ind
+# i containeren paa /etc/nginx/conf.d. Efter en aendring:
+#
+#   docker exec nginx nginx -t
+#   docker exec nginx nginx -s reload
+#
+# Certifikatet er Cloudflare Origin CA fra /etc/ssl/cloudflare. Ret
+# filnavnene herunder til dem der faktisk ligger i den mappe.
 
 server {
     listen 80;
@@ -21,37 +27,38 @@ server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name www.ebvb.dk;
-
-    ssl_certificate     /etc/letsencrypt/live/ebvb.dk/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/ebvb.dk/privkey.pem;
-
-    return 301 https://ebvb.dk$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
     server_name ebvb.dk;
 
-    ssl_certificate     /etc/letsencrypt/live/ebvb.dk/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/ebvb.dk/privkey.pem;
+    ssl_certificate     /etc/ssl/cloudflare/ebvb.dk.pem;
+    ssl_certificate_key /etc/ssl/cloudflare/ebvb.dk.key;
 
     # Samme graense som MAX_BYTES i app.py. De to skal folges ad.
     #
-    # ADVARSEL: Cloudflares gratis- og Pro-planer afviser selv request
-    # bodies over 100 MB, for de naar herned. Denne linje kan altsaa ikke
-    # alene give jer 512 MB uploads. Se DEPLOY.md, afsnittet om Cloudflare.
+    # ADVARSEL: Cloudflares gratis- og Pro-planer afviser request bodies
+    # over 100 MB, for de naar herned. Denne linje alene giver jer altsaa
+    # ikke 512 MB uploads. Se DEPLOY.md.
     client_max_body_size 512M;
 
-    # En stor wav over en dansk upload tager tid. Standard er 60s.
     client_body_timeout 300s;
     proxy_read_timeout  300s;
     proxy_send_timeout  300s;
 
     location / {
-        proxy_pass http://127.0.0.1:8090;
+        # 127.0.0.11 er Dockers indbyggede DNS. Naar proxy_pass
+        # indeholder en variabel, udskyder nginx navneopslaget til
+        # forespoergselstidspunktet i stedet for kun at gore det en gang
+        # ved indlaesning.
+        #
+        # Uden det her holder nginx fast i den IP app-containeren havde
+        # da konfigurationen blev laest. Hvert deploy med --build
+        # genskaber containeren og giver den en ny IP, og saa svarer
+        # siden 502 indtil nginx bliver genlaest. Med variablen sker det
+        # af sig selv - ogsaa efter en genstart hvor containerne kommer
+        # op i tilfaeldig raekkefolge.
+        resolver 127.0.0.11 valid=10s;
+        set $ebvb_upstream ebvb:8090;
+        proxy_pass http://$ebvb_upstream;
+
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
@@ -80,35 +87,3 @@ server {
 
     server_tokens off;
 }
-
-
-# --------------------------------------------------------------------
-# Vil du beholde Nextcloud, saa flyt den herned i stedet for at slette
-# den. Kraever en A-record for cloud.ebvb.dk og et certifikat:
-#
-#   sudo certbot --nginx -d cloud.ebvb.dk
-#
-# og i Nextclouds config.php:
-#   'overwrite.cli.url' => 'https://cloud.ebvb.dk',
-#   'trusted_domains'   => ['cloud.ebvb.dk'],
-# --------------------------------------------------------------------
-#
-# server {
-#     listen 443 ssl;
-#     http2 on;
-#     server_name cloud.ebvb.dk;
-#
-#     ssl_certificate     /etc/letsencrypt/live/cloud.ebvb.dk/fullchain.pem;
-#     ssl_certificate_key /etc/letsencrypt/live/cloud.ebvb.dk/privkey.pem;
-#
-#     client_max_body_size 512M;
-#
-#     location / {
-#         proxy_pass http://127.0.0.1:8080;
-#         proxy_http_version 1.1;
-#         proxy_set_header Host              $host;
-#         proxy_set_header X-Real-IP         $remote_addr;
-#         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-#         proxy_set_header X-Forwarded-Proto $scheme;
-#     }
-# }

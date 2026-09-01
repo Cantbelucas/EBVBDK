@@ -7,12 +7,12 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#eceae7">
 <meta name="theme-color" content="#0b0a0b" media="(prefers-color-scheme: dark)">
-<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Six+Caps&family=Mrs+Saint+Delafield&display=swap">
-<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-<script src="{{ url_for('static', filename='theme.js') }}"></script>
+<link rel="stylesheet" href="{{ asset('styles.css') }}">
+<script src="{{ asset('theme.js') }}"></script>
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
 <div class="grain" aria-hidden="true"></div>
@@ -49,6 +49,6 @@
 
 {% block body %}{% endblock %}
 
-<script src="{{ url_for('static', filename='app.js') }}" defer></script>
+<script src="{{ asset('app.js') }}" defer></script>
 </body>
 </html>
