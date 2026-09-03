@@ -1,0 +1,38 @@
+{# Baren: play, spring, stop og lydstyrke. Ligger fast i bunden. #}
+<div class="deck" role="region" aria-label="Afspilning">
+  <div class="deck__inner">
+    <div class="deck__top">
+
+      <div class="deck__now">
+        <span class="deck__art">
+          <img id="deck-img" alt="" hidden>
+        </span>
+        <span class="deck__text">
+          <span class="deck__title" id="deck-title">Intet spor valgt</span>
+          <span class="deck__sub" id="deck-sub">Vælg et spor i listen</span>
+        </span>
+      </div>
+
+      <div class="transport">
+        <button type="button" class="tbtn" id="prev" title="Forrige" aria-label="Forrige spor">&#9198;</button>
+        <button type="button" class="tbtn tbtn--play" id="play" aria-label="Afspil">&#9654;</button>
+        <button type="button" class="tbtn" id="stop" title="Stop" aria-label="Stop">&#9632;</button>
+        <button type="button" class="tbtn" id="next" title="Næste" aria-label="Næste spor">&#9197;</button>
+      </div>
+
+      <div class="deck__end">
+        <span class="clock"><span id="at">0:00</span> / <span id="dur">0:00</span></span>
+        <label class="vol">
+          <span class="sr">Lydstyrke</span>
+          <span class="vol__mark" aria-hidden="true">&#128264;</span>
+          <input type="range" id="vol" min="0" max="100" step="1" value="80">
+        </label>
+      </div>
+    </div>
+
+    <label class="deck__seek">
+      <span class="sr">Position i sporet</span>
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1" disabled>
+    </label>
+  </div>
+</div>

@@ -1,4 +1,4 @@
-<!doctype html>
+{% import "_bits.html" as bits with context %}<!doctype html>
 <html lang="da" data-theme="light">
 <head>
 <meta charset="utf-8">
@@ -30,7 +30,9 @@
       <span data-theme-label>Negativ</span>
     </button>
     {% if user %}
-      <span class="who">{{ user.name }}</span>
+      <a class="who" href="{{ url_for('profile', navn=user.name) }}">
+        {{ bits.face(user, 'face--sm') }}<span>{{ user.name }}</span>
+      </a>
       <form method="post" action="{{ url_for('logout') }}">
         <button type="submit" class="ghost">Log ud</button>
       </form>

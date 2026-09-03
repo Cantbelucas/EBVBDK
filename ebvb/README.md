@@ -6,7 +6,10 @@ ikke en filbrowser.
 
 ```
 app.py                    hele backenden (Flask + SQLite)
-templates/                base, login, forsiden
+templates/                base, login, forsiden, profil
+  _bits.html              makroer: en raekke, et ansigt
+  _plate.html             detaljepanelet
+  _deck.html              afspilningsbaren
 static/styles.css         al styling
 static/app.js             faner, afspiller, upload-ark
 static/theme.js           sætter lyst/mørkt før siden tegnes
@@ -14,6 +17,7 @@ data/                     ← databasen og filerne. Skal ikke i git.
   ebvb.db
   media/                  lydfilerne
   covers/                 artwork
+  avatars/                profilbilleder
   secret_key              session-nøglen
 ```
 
@@ -85,6 +89,26 @@ steder — heller ikke i databasen.
 **Admin** (`--admin`) kan slette alles spor. Alle andre kan kun slette
 deres egne. Alle kan se og hente alt — det er en gruppe, ikke en
 tjeneste.
+
+## Profiler
+
+Klik på et navn i en liste, eller på dit eget navn i baren øverst, og du
+lander på `/profil/<navn>`: alt hvad den person har lagt op, på tværs af
+begge sektioner, med tæller og samlet størrelse.
+
+Din egen profil har en **Rediger profil**-knap. Der kan du lægge et
+profilbillede op og skrive et par linjer om dig selv. Ingen andre kan
+redigere din — heller ikke admin. Det er en gruppe, ikke en tjeneste med
+moderation.
+
+Profilbilledet gemmes i `data/avatars/` under et uuid-navn, som samtidig
+er cache-buster i URL'en. Skifter du billede, bliver det gamle slettet.
+
+**Databasen migrerer sig selv.** `users` fik to nye kolonner
+(`avatar_file`, `bio`), og `CREATE TABLE IF NOT EXISTS` rører ikke en
+tabel der findes i forvejen. `migrate()` tilføjer dem ved opstart hvis de
+mangler, så et deploy oven på en kørende database ikke går i stykker.
+Kommandoen kan køres igen uden at duplikere noget.
 
 ## Hent en hel mappe ind
 

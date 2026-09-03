@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% import "_bits.html" as bits with context %}
+{% block title %}{{ who.name }} — EBVB{% endblock %}
+
+{% set is_me = who.id == user.id %}
+
+{% block body %}
+<div class="crumb">
+  <a class="ghost" href="{{ url_for('section', slug='beats') }}">Tilbage til listen</a>
+</div>
+
+<header class="who-card glass">
+  {{ bits.face(who, 'face--xl') }}
+
+  <div class="who-card__body">
+    <h1 class="who-card__name">{{ who.name }}</h1>
+
+    <p class="who-card__tally">
+      {%- for slug, label in sections.items() -%}
+        <span><b>{{ counts[slug] }}</b> {{ label|lower }}</span>
+      {%- endfor -%}
+      <span><b>{{ human_size(total) }}</b> i alt</span>
+      <span>Med siden {{ dk_date(who.created_at) }}</span>
+    </p>
+
+    {% if who.bio %}
+      <p class="who-card__bio">{{ who.bio }}</p>
+    {% elif is_me %}
+      <p class="who-card__bio who-card__bio--tom">
+        Du har ikke skrevet noget om dig selv endnu.
+      </p>
+    {% endif %}
+
+    {% if is_me %}
+      <button type="button" class="ghost" data-open-profile>Rediger profil</button>
+    {% endif %}
+  </div>
+</header>
+
+<main class="stage" id="indhold">
+  {% include "_plate.html" %}
+
+  <div class="lists glass">
+    <section class="list" data-section="profil"
+             aria-label="Lagt op af {{ who.name }}">
+      {% if tracks %}
+        <p class="list__head">
+          <span>Hvor</span><span>Titel</span><span>Detaljer</span>
+        </p>
+        {% for t in tracks %}
+          {{ bits.row(t, show_by=false, show_where=true) }}
+        {% endfor %}
+      {% else %}
+        <div class="empty">
+          <p class="empty__line">
+            {% if is_me %}Du har ikke lagt noget op endnu.
+            {% else %}{{ who.name }} har ikke lagt noget op endnu.{% endif %}
+          </p>
+          {% if is_me %}
+            <a class="solid" href="{{ url_for('section', slug='beats') }}">Læg det første op</a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
+  </div>
+</main>
+
+{% include "_deck.html" %}
+
+{% if is_me %}
+<dialog class="sheet" id="profile-sheet">
+  <form method="post" action="{{ url_for('profile_edit') }}"
+        enctype="multipart/form-data" class="sheet__form">
+    <h2 class="sheet__title">Din profil</h2>
+
+    <label class="field">
+      <span class="field__label">Profilbillede</span>
+      <input type="file" name="avatar" accept="image/*">
+      <span class="field__hint">Kvadratisk ser bedst ud. Op til 12 MB.</span>
+    </label>
+
+    {% if who.avatar_file %}
+      <label class="pick__opt pick__opt--alone">
+        <input type="checkbox" name="fjern_billede" value="1">
+        <span>Fjern det billede jeg har nu</span>
+      </label>
+    {% endif %}
+
+    <label class="field">
+      <span class="field__label">Om dig</span>
+      <textarea name="bio" maxlength="400" rows="3"
+                placeholder="Hvad laver du i gruppen? Producer, vokal, mix?">{{ who.bio }}</textarea>
+      <span class="field__hint">Højst 400 tegn. Kun gruppen kan se den.</span>
+    </label>
+
+    <div class="sheet__acts">
+      <button type="button" class="ghost" data-close-profile>Fortryd</button>
+      <button type="submit" class="solid">Gem</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+{% endblock %}

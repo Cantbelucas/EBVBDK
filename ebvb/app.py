@@ -47,6 +47,7 @@ ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("EBVB_DATA", ROOT / "data"))
 MEDIA = DATA / "media"
 COVERS = DATA / "covers"
+AVATARS = DATA / "avatars"
 DB_PATH = DATA / "ebvb.db"
 
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".aif", ".aiff"}
@@ -98,7 +99,9 @@ CREATE TABLE IF NOT EXISTS users (
     name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
     pw_hash    TEXT NOT NULL,
     is_admin   INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    avatar_file TEXT NOT NULL DEFAULT '',
+    bio         TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS tracks (
@@ -135,11 +138,28 @@ def close_db(_exc):
         conn.close()
 
 
+# Kolonner der er kommet til efter foerste udgave. CREATE TABLE IF NOT
+# EXISTS roerer ikke en tabel der allerede findes, saa de skal tilfoejes
+# her - ellers gaar en eksisterende database i stykker ved opgradering.
+LATER_COLUMNS = (
+    ("users", "avatar_file", "TEXT NOT NULL DEFAULT ''"),
+    ("users", "bio", "TEXT NOT NULL DEFAULT ''"),
+)
+
+
+def migrate(conn):
+    for table, column, ddl in LATER_COLUMNS:
+        have = {r[1] for r in conn.execute("PRAGMA table_info({0})".format(table))}
+        if column not in have:
+            conn.execute("ALTER TABLE {0} ADD COLUMN {1} {2}".format(table, column, ddl))
+
+
 def init_storage():
-    for folder in (DATA, MEDIA, COVERS):
+    for folder in (DATA, MEDIA, COVERS, AVATARS):
         folder.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA)
+    migrate(conn)
     conn.commit()
     conn.close()
 
@@ -408,6 +428,85 @@ def delete(track_id):
                 app.logger.warning("kunne ikke slette %s", folder / name)
     flash("{0} er slettet.".format(row["title"]))
     return redirect(url_for("section", slug=row["section"]))
+
+
+# --------------------------------------------------------------------
+# Profiler
+# --------------------------------------------------------------------
+
+def tracks_by(user_id):
+    return db().execute(
+        "SELECT t.*, u.name AS uploader"
+        "  FROM tracks t JOIN users u ON u.id = t.uploader_id"
+        " WHERE t.uploader_id = ?"
+        " ORDER BY t.created_at DESC", (user_id,)
+    ).fetchall()
+
+
+@app.get("/profil/<navn>")
+@login_required
+def profile(navn):
+    who = db().execute("SELECT * FROM users WHERE name = ?", (navn,)).fetchone()
+    if who is None:
+        abort(404)
+    rows = tracks_by(who["id"])
+    counts = {key: sum(1 for r in rows if r["section"] == key) for key in SECTIONS}
+    return render_template("profil.html", who=who, tracks=rows, counts=counts,
+                           total=sum(r["audio_size"] for r in rows))
+
+
+@app.get("/avatar/<navn>")
+@login_required
+def avatar(navn):
+    row = db().execute(
+        "SELECT avatar_file FROM users WHERE name = ?", (navn,)).fetchone()
+    if row is None or not row["avatar_file"]:
+        abort(404)
+    return send_file(AVATARS / row["avatar_file"], conditional=True,
+                     max_age=60 * 60 * 24 * 30)
+
+
+@app.post("/profil/rediger")
+@login_required
+def profile_edit():
+    """Man redigerer kun sin egen profil. Heller ikke admin roerer andres -
+    det er en gruppe, ikke en tjeneste med moderation."""
+    me = current_user()
+    old_avatar = me["avatar_file"]
+    new_avatar = old_avatar
+
+    if request.form.get("fjern_billede"):
+        new_avatar = ""
+    else:
+        picture = request.files.get("avatar")
+        if picture is not None and picture.filename:
+            picture_ext = ext_of(picture.filename)
+            if picture_ext not in IMAGE_EXT:
+                flash("Profilbilledet blev sprunget over. {0} er ikke et "
+                      "billedformat.".format(picture_ext or "Filen har ingen endelse"))
+            else:
+                new_avatar = uuid.uuid4().hex + picture_ext
+                init_storage()
+                picture.save(AVATARS / new_avatar)
+                if (AVATARS / new_avatar).stat().st_size > MAX_COVER_BYTES:
+                    (AVATARS / new_avatar).unlink()
+                    new_avatar = old_avatar
+                    flash("Profilbilledet var over 12 MB og blev sprunget over.")
+
+    db().execute(
+        "UPDATE users SET bio = ?, avatar_file = ? WHERE id = ?",
+        ((request.form.get("bio") or "").strip()[:400], new_avatar, me["id"]),
+    )
+    db().commit()
+
+    # Det gamle billede er der ingen der peger paa laengere.
+    if old_avatar and old_avatar != new_avatar:
+        try:
+            (AVATARS / old_avatar).unlink(missing_ok=True)
+        except OSError:
+            app.logger.warning("kunne ikke slette %s", AVATARS / old_avatar)
+
+    return redirect(url_for("profile", navn=me["name"]))
 
 
 @app.errorhandler(413)

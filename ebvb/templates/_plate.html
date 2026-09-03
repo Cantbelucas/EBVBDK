@@ -1,0 +1,41 @@
+{# Panelet i siden: kun detaljer om sporet. Afspilningen bor i baren. #}
+<aside class="plate glass" id="plate" data-empty>
+  <div class="plate__art">
+    <img class="plate__img" id="plate-img" alt="" hidden>
+    <p class="plate__blank" id="plate-blank">EBVB</p>
+  </div>
+
+  <h2 class="plate__title" id="plate-title">Vælg et spor</h2>
+  <p class="plate__meta" id="plate-meta">Klik på en titel i listen</p>
+
+  <div class="facts">
+    <div class="fact">
+      <span class="fact__key">BPM</span>
+      <span class="fact__val" id="d-bpm">—</span>
+    </div>
+    <div class="fact">
+      <span class="fact__key">Toneart</span>
+      <span class="fact__val" id="d-key">—</span>
+    </div>
+  </div>
+
+  <div class="note" id="d-note-wrap" hidden>
+    <span class="note__key">Note</span>
+    <span class="note__val" id="d-note"></span>
+  </div>
+
+  <div class="spec">
+    <div><span>Lagt op af</span><a id="d-by" class="spec__link" href="#">—</a></div>
+    <div><span>Dato</span><span id="d-date">—</span></div>
+    <div><span>Fil</span><span id="d-file">—</span></div>
+    <div><span>Længde</span><span id="d-len">—</span></div>
+  </div>
+
+  <div class="plate__acts">
+    <a class="ghost" id="plate-dl" href="#" hidden>Hent</a>
+    <form method="post" id="plate-del" hidden
+          onsubmit="return confirm('Slet sporet for altid?')">
+      <button type="submit" class="ghost ghost--warn">Slet</button>
+    </form>
+  </div>
+</aside>

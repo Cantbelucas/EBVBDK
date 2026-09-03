@@ -936,6 +936,147 @@ input[type="range"]::-moz-range-thumb {
   .row__len { display: none; }
 }
 
+/* ---------- Profiler ---------- */
+
+/* Raekken er delt op: titlen sidder i knappen, undertitlen udenfor,
+   fordi et link ikke maa staa inde i en knap. */
+.row__main { min-width: 0; }
+.row__hit  { display: block; width: 100%; }
+
+.row__by,
+.spec__link {
+  position: relative;
+  z-index: 2;                 /* over row__hit::after, som daekker raekken */
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid var(--hair);
+  transition: color var(--t-move) ease, border-color var(--t-move) ease;
+}
+.row__by:hover,
+.spec__link:hover { color: var(--red); border-bottom-color: var(--red-line); }
+
+/* Ansigtet. Samme afrunding som cover-fliserne - et menneske behandles
+   som et omslag, ikke som en cirkel i en kontaktliste. */
+.face {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--hair);
+  background:
+    radial-gradient(120% 100% at 20% 0%, var(--red-soft), transparent 60%),
+    var(--glass-2);
+}
+.face img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.face__letter {
+  font-family: var(--display);
+  font-size: 30px;
+  line-height: 0.7;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.face--sm { width: 24px; height: 24px; border-radius: 8px; }
+.face--sm .face__letter { font-size: 17px; }
+
+.face--xl { width: clamp(96px, 15vw, 132px); height: clamp(96px, 15vw, 132px); border-radius: 22px; }
+.face--xl .face__letter { font-size: clamp(64px, 10vw, 90px); }
+
+/* Eget navn i baren fører til ens egen profil. */
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  text-decoration: none;
+  padding: 4px 12px 4px 4px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  transition: background var(--t-move) ease, color var(--t-move) ease,
+              border-color var(--t-move) ease;
+}
+.who:hover { color: var(--ink); border-color: var(--hair); background: var(--glass-2); }
+
+.crumb {
+  max-width: var(--shelf);
+  margin: clamp(14px, 2.4vw, 22px) auto 0;
+  padding: 0 var(--gut);
+}
+
+.who-card {
+  max-width: var(--shelf);
+  margin: clamp(12px, 2vw, 18px) auto 0;
+  width: calc(100% - 2 * var(--gut));
+  border-radius: var(--r-panel);
+  padding: clamp(18px, 3vw, 26px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(16px, 3vw, 28px);
+}
+
+.who-card__body { min-width: 0; flex: 1 1 320px; }
+
+.who-card__name {
+  font-family: var(--display);
+  font-size: clamp(56px, 9vw, 104px);
+  line-height: 0.76;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.who-card__tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin-top: 14px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.who-card__tally b { color: var(--ink); font-weight: 700; }
+
+.who-card__bio {
+  margin-top: 14px;
+  max-width: 60ch;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+.who-card__bio--tom { color: var(--ink-2); font-style: italic; }
+
+.who-card .ghost { margin-top: 16px; }
+
+/* ---------- Felter der kom til med profilen ---------- */
+
+.field textarea {
+  font: inherit;
+  font-size: 14px;
+  width: 100%;
+  resize: vertical;
+  background: var(--field);
+  color: var(--ink);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-card);
+  padding: 12px 14px;
+}
+.field textarea:focus { outline: 0; border-color: var(--red-line); }
+.field textarea::placeholder { color: var(--ink-2); opacity: 0.75; }
+
+.pick__opt--alone { display: flex; margin: 0 0 20px; }
+
+.deck__text { min-width: 0; }
+
 /* ============================================================
    Bevaegelse
 

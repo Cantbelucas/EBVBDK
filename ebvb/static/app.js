@@ -166,6 +166,9 @@
     dBpm.textContent = row.dataset.bpm || "—";
     dKey.textContent = row.dataset.key || "—";
     dBy.textContent = row.dataset.by || "—";
+    dBy.href = row.dataset.by
+      ? "/profil/" + encodeURIComponent(row.dataset.by)
+      : "#";
     dDate.textContent = row.dataset.date || "—";
     dFile.textContent = row.dataset.file || "—";
     dLen.textContent = "—";
@@ -301,6 +304,18 @@
     else if (audio.paused) audio.play();
     else audio.pause();
   });
+
+  /* ---------- Egen profil ---------- */
+
+  var profileSheet = document.getElementById("profile-sheet");
+  if (profileSheet) {
+    document.querySelectorAll("[data-open-profile]").forEach(function (btn) {
+      btn.addEventListener("click", function () { profileSheet.showModal(); });
+    });
+    profileSheet.querySelectorAll("[data-close-profile]").forEach(function (btn) {
+      btn.addEventListener("click", function () { profileSheet.close(); });
+    });
+  }
 
   /* ---------- Upload ---------- */
 

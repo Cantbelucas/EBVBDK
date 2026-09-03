@@ -1,0 +1,70 @@
+{# En raekke i en liste. Bruges baade paa forsiden og paa en profil.
+
+   nr        katalognummer, eller udeladt paa en profil hvor nummeret
+             ville vaere et andet end paa forsiden for samme spor
+   show_by   navnet paa den der lagde op. Slaas fra paa en profil,
+             hvor det er den samme i hver eneste raekke
+   show_where  hvilken sektion sporet ligger i. Omvendt: kun paa en
+             profil, hvor listen blander beats og music #}
+
+{% macro row(t, nr=None, show_by=true, show_where=false) %}
+<article class="row" id="{{ t.id }}"
+         data-id="{{ t.id }}"
+         data-title="{{ t.title }}"
+         data-src="{{ url_for('audio_stream', track_id=t.id) }}"
+         data-dl="{{ url_for('download', track_id=t.id) }}"
+         data-cover="{% if t.cover_file %}{{ url_for('cover_image', track_id=t.id) }}{% endif %}"
+         data-bpm="{{ t.bpm or '' }}"
+         data-key="{{ t.mkey or '' }}"
+         data-by="{{ t.uploader }}"
+         data-date="{{ dk_date(t.created_at) }}"
+         data-file="{{ human_size(t.audio_size) }}"
+         data-note="{{ t.note }}"
+         {% if user.is_admin or t.uploader_id == user.id %}data-own="1"{% endif %}>
+
+  <span class="row__idx" aria-hidden="true">
+    {%- if nr %}{{ '%02d' % nr }}{% else %}{{ sections[t.section][:1] }}{% endif -%}
+  </span>
+
+  <span class="row__art">
+    {% if t.cover_file %}
+      <img src="{{ url_for('cover_image', track_id=t.id) }}" alt="" loading="lazy">
+    {% endif %}
+  </span>
+
+  <div class="row__main">
+    <button type="button" class="row__hit">
+      <span class="row__title">{{ t.title }}</span>
+    </button>
+    {# Navnet ligger uden for knappen. Et link kan ikke staa i en knap,
+       og row__hit daekker hele raekken for at kunne klikkes overalt. #}
+    <p class="row__sub">
+      {%- if show_where %}{{ sections[t.section] }} · {% endif -%}
+      {%- if t.bpm %}{{ t.bpm }} BPM · {% endif -%}
+      {%- if t.mkey %}{{ t.mkey }} · {% endif -%}
+      {%- if show_by -%}
+        <a class="row__by" href="{{ url_for('profile', navn=t.uploader) }}">{{ t.uploader }}</a> ·
+      {% endif -%}
+      {{ dk_date(t.created_at) }}
+    </p>
+  </div>
+
+  <span class="row__end">
+    <span class="row__state" aria-hidden="true">spiller</span>
+    <span class="row__len">{{ human_size(t.audio_size) }}</span>
+  </span>
+</article>
+{% endmacro %}
+
+
+{# Profilbillede. Uden et billede vises forbogstavet. avatar_file er en
+   uuid, saa den fungerer ogsaa som cache-buster naar billedet skiftes. #}
+{% macro face(who, extra='') %}
+<span class="face {{ extra }}">
+  {% if who.avatar_file %}
+    <img src="{{ url_for('avatar', navn=who.name) }}?v={{ who.avatar_file[:8] }}" alt="">
+  {% else %}
+    <span class="face__letter" aria-hidden="true">{{ who.name[:1] }}</span>
+  {% endif %}
+</span>
+{% endmacro %}
