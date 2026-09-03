@@ -40,7 +40,12 @@
     lists.forEach(function (list) {
       var match = list.dataset.section === slug;
       list.hidden = !match;
-      if (match) found = true;
+      if (match) {
+        found = true;
+        list.classList.remove("is-entering");
+        void list.offsetWidth;
+        list.classList.add("is-entering");
+      }
     });
     if (!found) return;
 
@@ -73,6 +78,7 @@
   var plate = document.getElementById("plate");
   if (!plate) return;
 
+  var plateArt = document.querySelector(".plate__art");
   var img = document.getElementById("plate-img");
   var blank = document.getElementById("plate-blank");
   var titleEl = document.getElementById("plate-title");
@@ -140,6 +146,14 @@
     });
   }
 
+  /* Coveret lander. Klassen skal fjernes og saettes igen, ellers
+     spiller animationen ikke naar man vaelger to spor i traek. */
+  function settleArt() {
+    plateArt.classList.remove("is-fresh");
+    void plateArt.offsetWidth;
+    plateArt.classList.add("is-fresh");
+  }
+
   function load(row, autoplay) {
     if (!row) return;
     current = row;
@@ -176,12 +190,14 @@
       blank.hidden = true;
       deckImg.src = row.dataset.cover;
       deckImg.hidden = false;
+      if (img.complete) settleArt(); else img.onload = settleArt;
     } else {
       img.removeAttribute("src");
       img.hidden = true;
       blank.hidden = false;
       deckImg.removeAttribute("src");
       deckImg.hidden = true;
+      settleArt();
     }
 
     dlEl.href = row.dataset.dl;

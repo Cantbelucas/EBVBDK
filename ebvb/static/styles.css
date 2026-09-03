@@ -46,6 +46,12 @@
   --r-pill:  999px;
 
   --deck-h: 132px;
+
+  /* To hastigheder. Et tryk svarer straks; noget tungt falder til ro. */
+  --ease-settle: cubic-bezier(0.16, 0.84, 0.28, 1);
+  --t-press:  110ms;
+  --t-move:   200ms;
+  --t-settle: 420ms;
 }
 
 [data-theme="dark"] {
@@ -930,8 +936,105 @@ input[type="range"]::-moz-range-thumb {
   .row__len { display: none; }
 }
 
+/* ============================================================
+   Bevaegelse
+
+   Appen er udstyr, ikke en hjemmeside. Derfor decelleration og
+   ingen bounce - der er ingenting i en afspiller der hopper.
+
+   Reglerne her staar bevidst efter resten af filen: de udvider de
+   transitions der er defineret laengere oppe, og en transition-
+   shorthand vinder over den foerste.
+   ============================================================ */
+
+/* Signaturen. Coveret lander som et omslag der laegges paa pladen. */
+@keyframes cover-lands {
+  /* Loeft plus skalering skal holde sig inden for panelets padding,
+     ellers klipper .plate sin overflow paa den oeverste kant. */
+  from { opacity: 0.3; transform: translateY(-9px) rotate(-2.2deg) scale(1.035); }
+  to   { opacity: 1;   transform: none; }
+}
+.plate__art.is-fresh {
+  animation: cover-lands var(--t-settle) var(--ease-settle) both;
+}
+
+/* Raekker: tryk giver efter, og kanten paa det spillende spor vokser
+   ud i stedet for at blinke frem. */
+.row {
+  transition: background var(--t-move) ease,
+              border-color var(--t-move) ease,
+              transform var(--t-press) ease;
+}
+.row:active { transform: scale(0.994); }
+
+.row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--red);
+  pointer-events: none;
+  transform: scaleY(0);
+  transition: transform var(--t-move) var(--ease-settle);
+}
+.row.is-current::before { transform: scaleY(1); }
+
+/* Transporten foles som knapper med masse. */
+.tbtn {
+  transition: background var(--t-move) ease,
+              border-color var(--t-move) ease,
+              color var(--t-move) ease,
+              transform var(--t-press) ease;
+}
+.tbtn:active:not(:disabled)       { transform: scale(0.90); }
+.tbtn--play:active:not(:disabled) { transform: scale(0.94); }
+
+.solid, .ghost {
+  transition: background var(--t-move) ease,
+              color var(--t-move) ease,
+              border-color var(--t-move) ease,
+              box-shadow var(--t-move) ease,
+              transform var(--t-press) ease;
+}
+.solid:active, .ghost:active { transform: translateY(1px) scale(0.985); }
+
+.tab {
+  transition: color var(--t-move) linear,
+              -webkit-text-stroke-color var(--t-move) linear,
+              transform var(--t-press) ease;
+}
+.tab:active { transform: translateY(2px); }
+
+/* Fanen der kommer ind, stiger op paa plads. Den der gaar ud, gaar
+   bare - to samtidige bevaegelser laeser som rod. */
+@keyframes list-enters {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.list.is-entering { animation: list-enters var(--t-move) var(--ease-settle) both; }
+
+@keyframes sheet-opens {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes backdrop-fades {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.sheet[open]           { animation: sheet-opens var(--t-move) var(--ease-settle) both; }
+.sheet[open]::backdrop { animation: backdrop-fades var(--t-move) ease both; }
+
 @media (prefers-reduced-motion: reduce) {
-  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  /* Alle sluttilstande ovenfor er neutrale, saa en varighed paa naesten
+     nul lander det rigtige sted uden bevaegelse. */
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 @media print {

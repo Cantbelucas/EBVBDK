@@ -19,18 +19,33 @@ data/                     ← databasen og filerne. Skal ikke i git.
 
 ## Design
 
-Ingen accentfarve. Papir og blæk, intet andet — det eneste farvede på
-siden er det artwork I selv lægger op. Mørk tilstand er ikke en anden
-palet, det er **negativet**: de samme to toner byttet om. Knappen øverst
-til højre hedder derfor `Negativ` / `Positiv`.
+Glas og runde kanter over en rød glød. Grundtonen er papir og blæk, og
+accenten (`#c2413c` lys, `#e2554f` mørk) går igen ét sted ad gangen: på
+det spor der spiller, på afspilningsbaren og på play-knappen. Mørk
+tilstand er den samme opbygning i den mørke tone — knappen øverst til
+højre hedder `Negativ` / `Positiv`.
 
-Det spor der spiller, står **på hovedet** — cover-pladen roterer 180°.
-Det er tilstandsmarkeringen, og det er et citat af jeres eget cover.
-Slår man `prefers-reduced-motion` til, markeres det med en tyk ramme i
-stedet, så tilstanden aldrig kun ligger i en bevægelse.
+Afspilningen bor i baren i bunden. Panelet i siden er kun detaljer om
+sporet: cover, titel, BPM, toneart, note, hvem der lagde op, og længde.
+Over 900px står listen til venstre og panelet til højre.
 
 Skrifterne er Six Caps (mærket, fanerne, titler), skriveskriften
 Mrs Saint Delafield til mottoet, og systemets mono til alt data.
+
+### Bevægelse
+
+Appen er udstyr, ikke en hjemmeside. Der er to hastigheder: `--t-press`
+på 110ms så et tryk svarer med det samme, og `--t-settle` på 420ms med
+kraftig decelleration når noget falder til ro. Ingen bounce — der er
+ingenting i en afspiller der hopper.
+
+Signaturen er at **coveret lander**: vælger du et spor, kommer flisen ind
+lidt højere oppe, en anelse drejet, og sætter sig — som et omslag der
+lægges på pladen. Det er det ene sted der bruges krudt. Resten er
+tryk-feedback og en rød kant der vokser ud på det spillende spor.
+
+Alt respekterer `prefers-reduced-motion`: hver animations sluttilstand er
+neutral, så en varighed på nær nul lander det rigtige sted uden bevægelse.
 
 ## Kør lokalt
 
