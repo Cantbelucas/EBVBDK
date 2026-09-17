@@ -29,12 +29,15 @@
     <div><span>Dato</span><span id="d-date">—</span></div>
     <div><span>Fil</span><span id="d-file">—</span></div>
     <div><span>Længde</span><span id="d-len">—</span></div>
+    <div id="d-pack-wrap" hidden><span>Pakke</span><a id="d-pack" class="spec__link" href="#">—</a></div>
   </div>
 
   <div class="plate__acts">
     <a class="ghost" id="plate-dl" href="#" hidden>Hent</a>
+    {# Ikke onsubmit="...": CSP'en tillader ingen inline-scripts, og saa
+       ville bekraeftelsen bare blive sprunget over. app.js tager den. #}
     <form method="post" id="plate-del" hidden
-          onsubmit="return confirm('Slet sporet for altid?')">
+          data-confirm="Slet sporet for altid?">
       <button type="submit" class="ghost ghost--warn">Slet</button>
     </form>
   </div>

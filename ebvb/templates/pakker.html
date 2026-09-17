@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% import "_bits.html" as bits with context %}
+{% block title %}Pakker — EBVB{% endblock %}
+{% block bodyclass %}is-tool{% endblock %}
+
+{% block body %}
+{% call bits.tabs(active) %}
+  <button type="button" class="solid tabs__add" data-open-sheet="pack-new">Ny pakke</button>
+{% endcall %}
+
+<main class="shelf" id="indhold">
+  {% if packs %}
+    <p class="shelf__lead">
+      Samlinger af numre. Numrene ligger stadig i Beats og Music — en pakke
+      er bare en måde at holde dem sammen på.
+    </p>
+
+    <ul class="packs">
+      {% for p in packs %}
+        <li class="pack glass">
+          <a class="pack__link" href="{{ url_for('pack_view', pack_id=p.id) }}">
+            {{ bits.pack_art(p) }}
+            <span class="pack__name">{{ p.name }}</span>
+          </a>
+          <p class="pack__tally">{{ bits.pack_tally(p) }}</p>
+          <p class="pack__by">
+            <a class="row__by" href="{{ url_for('profile', navn=p.owner) }}">{{ p.owner }}</a>
+            · {{ dk_date(p.created_at) }}
+          </p>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="empty glass empty--panel">
+      <p class="empty__line">Ingen pakker endnu.</p>
+      <p class="shelf__lead">
+        En pakke samler numre, fx "Fjolli september beats". Lægger du en
+        mappe op, bliver der foreslået en pakke med mappens navn.
+      </p>
+      <button type="button" class="solid" data-open-sheet="pack-new">Lav den første</button>
+    </div>
+  {% endif %}
+</main>
+
+<dialog class="sheet" id="pack-new">
+  <form method="post" action="{{ url_for('pack_create') }}"
+        enctype="multipart/form-data" class="sheet__form">
+    <h2 class="sheet__title">Ny pakke</h2>
+
+    <label class="field">
+      <span class="field__label">Navn</span>
+      <input name="name" maxlength="{{ name_max }}" required
+             placeholder="Fx: Fjolli september beats">
+    </label>
+
+    <label class="field">
+      <span class="field__label">Beskrivelse</span>
+      <textarea name="description" maxlength="{{ text_max }}" rows="3"
+                placeholder="Kan udelades"></textarea>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Cover</span>
+      <input type="file" name="cover" accept="image/*">
+      <span class="field__hint">
+        Kan udelades. Uden et bruges coveret fra det første nummer der har ét.
+      </span>
+    </label>
+
+    <p class="field__hint">Bagefter vælger du hvilke numre der skal i pakken.</p>
+
+    <div class="sheet__acts">
+      <button type="button" class="ghost" data-close-sheet>Fortryd</button>
+      <button type="submit" class="solid">Lav pakken</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

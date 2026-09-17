@@ -87,6 +87,13 @@
     var retryBtn = document.getElementById("retry");
     var reviewLink = document.getElementById("review-link");
 
+    var packUrl = form.dataset.pack;
+    var packAddUrl = form.dataset.packAdd;
+    var packOpt = document.getElementById("pack-opt");
+    var packOn = document.getElementById("pack-on");
+    var packName = document.getElementById("pack-name");
+    var packLink = document.getElementById("pack-link");
+
     var items = [];
     var batch = null;
     var busy = false;
@@ -94,6 +101,9 @@
     var current = null;           // XHR der koerer lige nu
     var dupDecision = null;
     var scanToken = 0;
+    var packId = null;            // saettes naar serveren har lavet pakken
+    var packSent = false;         // navnet er sendt; serveren holder fast i det
+    var lastFolder = null;
 
     // Mappe-vaelgeren findes i alle desktop-browsere, men ikke overalt.
     if (!("webkitdirectory" in input)) {
@@ -126,6 +136,27 @@
       radio.addEventListener("change", function () { if (items.length) scan(); });
     });
 
+    /* Mappens navn er forslaget til pakken. Den oeverste mappe - det er
+       den man valgte - ikke undermappen den foerste fil ligger i. */
+    function folderName(files) {
+      var path = files.length ? files[0].webkitRelativePath || "" : "";
+      var top = path.indexOf("/") > 0 ? path.slice(0, path.indexOf("/")) : "";
+      return top.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
+    }
+
+    function wantsPack() {
+      return packOn.checked;
+    }
+
+    function paintPack() {
+      packName.disabled = busy || packSent || !packOn.checked;
+      packOn.disabled = busy || packSent;
+      packOpt.classList.toggle("is-off", !packOn.checked);
+    }
+
+    packOn.addEventListener("change", function () { paintPack(); refresh(); });
+    packName.addEventListener("input", refresh);
+
     /* ---------- 1. Find og tjek ---------- */
 
     function scan() {
@@ -142,7 +173,20 @@
       dupBox.hidden = true;
       progress.hidden = true;
       doneText.textContent = "";
+      doneText.dataset.kind = "";
       reviewLink.hidden = true;
+      packLink.hidden = true;
+      packId = null;
+      packSent = false;
+      // Skift af sektion koerer ogsaa scan. Saa er det samme mappe, og et
+      // navn man selv har rettet, eller en fravalgt pakke, skal blive.
+      var folder = folderName(files);
+      if (folder !== lastFolder) {
+        packOn.checked = true;
+        packName.value = folder;
+        lastFolder = folder;
+      }
+      paintPack();
       retryBtn.hidden = true;
       startBtn.hidden = false;
       startBtn.disabled = true;
@@ -387,10 +431,13 @@
       var undecided = dupBox.hidden === false && dupDecision === null &&
         picked.some(function (it) { return it.duplicate; });
 
+      var unnamed = wantsPack() && !packSent && !packName.value.trim();
+
       startBtn.hidden = false;
-      startBtn.disabled = !batch || !sending.length || undecided;
+      startBtn.disabled = !batch || !sending.length || undecided || unnamed;
       startBtn.textContent = sending.length ? "Læg " + plural(sending.length, "nummer", "numre") + " op" : "Læg op";
       if (undecided) doneText.textContent = "Vælg først hvad der skal ske med dubletterne.";
+      else if (unnamed) doneText.textContent = "Giv pakken et navn, eller fravælg den.";
       else if (doneText.dataset.kind !== "result") doneText.textContent = "";
     }
 
@@ -422,10 +469,12 @@
       stopBtn.hidden = !on;
       stopBtn.disabled = false;
       stopBtn.textContent = "Stop";
+      paintPack();
       if (on) {
         window.addEventListener("beforeunload", guard);
         retryBtn.hidden = true;
         reviewLink.hidden = true;
+        packLink.hidden = true;
       } else {
         window.removeEventListener("beforeunload", guard);
       }
@@ -434,6 +483,10 @@
     function run(queue) {
       if (!queue.length || busy) return;
       stopping = false;
+      // Navnet laases fra foerste bid. Serveren laver pakken med det navn
+      // den faar foerst, saa et nyt navn ved "Proev igen" ville ikke
+      // goere noget - bortset fra at forvirre.
+      if (wantsPack()) packSent = true;
       lock(true);
       progress.hidden = false;
       doneText.dataset.kind = "";
@@ -502,11 +555,46 @@
         refresh();
         startBtn.hidden = !pending().length;
 
+        if (packId) {
+          packLink.href = packUrl.replace("PACK", packId);
+          packLink.hidden = false;
+          notePackLeftovers();
+        } else if (wantsPack() && !(added + over)) {
+          doneText.appendChild(document.createTextNode(
+            (doneText.textContent ? " " : "") +
+            "Der blev ikke lavet en pakke, fordi ingen numre blev lagt op."));
+        }
+
         if (added + over) {
           reviewLink.href = reviewUrl.replace("BATCH", batch);
           reviewLink.hidden = false;
           reviewLink.focus();
         }
+      }
+
+      /* Dine egne numre der fandtes i forvejen og blev sprunget over, kom
+         ikke med i pakken - der blev jo ikke sendt noget. Mappen var dog
+         tydeligvis meningen, saa tilbyd at laegge dem i bagefter. */
+      function notePackLeftovers() {
+        var left = chosen().filter(function (it) {
+          return it.duplicate && it.duplicate.id && it.duplicate.own && !it.sibling &&
+            (it.choice || "skip") === "skip";
+        });
+        if (!left.length) return;
+
+        var moving = left.filter(function (it) { return it.duplicate.pack; }).length;
+        doneText.appendChild(document.createTextNode(
+          (doneText.textContent ? " " : "") +
+          plural(left.length, "nummer", "numre") + " fandtes allerede og kom ikke med i pakken" +
+          (moving ? " (" + moving + " ligger i en anden pakke)" : "") + ". "));
+
+        var link = make("a", "spec__link", "Læg " + (left.length === 1 ? "det" : "dem") + " i pakken");
+        // Over et par hundrede id'er bliver adressen for lang til nginx.
+        // Saa aabnes siden uden forvalg.
+        link.href = packAddUrl.replace("PACK", packId) + (left.length <= 100
+          ? "?vaelg=" + left.map(function (it) { return it.duplicate.id; }).join(",")
+          : "");
+        doneText.appendChild(link);
       }
 
       next(0);
@@ -540,6 +628,7 @@
           body.append("size", String(size));
           body.append("offset", String(offset));
           body.append("duplicate", choice);
+          body.append("pack_name", wantsPack() ? packName.value.trim() : "");
           body.append("part", file.slice(offset, end), "part");
 
           var xhr = new XMLHttpRequest();
@@ -565,6 +654,7 @@
               } else {
                 item.uploadId = null;
                 item.have = 0;
+                if (data.pack) packId = data.pack;
                 onProgress(size);
                 resolve({ state: data.status });
               }

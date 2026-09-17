@@ -5,9 +5,11 @@
    show_by   navnet paa den der lagde op. Slaas fra paa en profil,
              hvor det er den samme i hver eneste raekke
    show_where  hvilken sektion sporet ligger i. Omvendt: kun paa en
-             profil, hvor listen blander beats og music #}
+             profil, hvor listen blander beats og music
+   drop_url  "Fjern fra pakken" - kun paa en pakke, og kun for dem der
+             maa. Uden den ser raekken ud som alle andre steder. #}
 
-{% macro row(t, nr=None, show_by=true, show_where=false) %}
+{% macro row(t, nr=None, show_by=true, show_where=false, drop_url=None) %}
 <article class="row" id="{{ t.id }}"
          data-id="{{ t.id }}"
          data-title="{{ t.title }}"
@@ -20,6 +22,8 @@
          data-date="{{ dk_date(t.created_at) }}"
          data-file="{{ human_size(t.audio_size) }}"
          data-note="{{ t.note }}"
+         data-pack="{{ t.pack_name or '' }}"
+         data-pack-url="{% if t.pack_id %}{{ url_for('pack_view', pack_id=t.pack_id) }}{% endif %}"
          {% if user.is_admin or t.uploader_id == user.id %}data-own="1"{% endif %}>
 
   <span class="row__idx" aria-hidden="true">
@@ -52,8 +56,62 @@
   <span class="row__end">
     <span class="row__state" aria-hidden="true">spiller</span>
     <span class="row__len">{{ human_size(t.audio_size) }}</span>
+    {% if drop_url %}
+      <form method="post" action="{{ drop_url }}" class="row__drop">
+        <input type="hidden" name="track" value="{{ t.id }}">
+        <button type="submit" class="ghost ghost--tiny"
+                aria-label="Tag {{ t.title }} ud af pakken">Fjern</button>
+      </form>
+    {% endif %}
   </span>
 </article>
+{% endmacro %}
+
+
+{# Fanerne. Paa forsiden skifter Beats og Music uden at hente siden
+   igen (data-tab); alle andre steder er de almindelige links. Pakker
+   er altid et link. Knappen til hoejre kommer fra den der kalder. #}
+{% macro tabs(active) %}
+<nav class="tabs" aria-label="Sektioner">
+  {% for slug, label in sections.items() %}
+    <a class="tab{% if slug == active %} is-active{% endif %}"
+       href="{{ url_for('section', slug=slug) }}"
+       {% if active in sections %}data-tab="{{ slug }}"{% endif %}
+       {% if slug == active %}aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+  <a class="tab{% if active == 'pakker' %} is-active{% endif %}"
+     href="{{ url_for('packs') }}"
+     {% if active == 'pakker' %}aria-current="page"{% endif %}>Pakker</a>
+  {{ caller() }}
+</nav>
+{% endmacro %}
+
+
+{# Pakkens omslag: eget cover, ellers det foerste spor med et, ellers
+   maerket. #}
+{% macro pack_art(p, extra='') %}
+<span class="pack-art {{ extra }}">
+  {% if p.cover_file %}
+    <img src="{{ url_for('pack_cover', pack_id=p.id) }}?v={{ p.cover_file[:8] }}" alt="" loading="lazy">
+  {% elif p.art_track %}
+    <img src="{{ url_for('cover_image', track_id=p.art_track) }}" alt="" loading="lazy">
+  {% else %}
+    <span class="pack-art__blank" aria-hidden="true">EBVB</span>
+  {% endif %}
+</span>
+{% endmacro %}
+
+
+{# "12 numre · 38:12". Spor hvis laengde ikke kunne laeses, taeller med
+   i antallet, men siges hoejt i stedet for at blive gaettet. #}
+{% macro pack_tally(p) %}
+  {%- if p.n -%}
+    <span><b>{{ p.n }}</b> {{ 'nummer' if p.n == 1 else 'numre' }}</span>
+    <span><b>{{ clock(p.seconds) if p.seconds else '—' }}</b>
+      {%- if p.unknown %} + {{ p.unknown }} uden kendt længde{% endif %}</span>
+  {%- else -%}
+    <span>Ingen numre endnu</span>
+  {%- endif -%}
 {% endmacro %}
 
 

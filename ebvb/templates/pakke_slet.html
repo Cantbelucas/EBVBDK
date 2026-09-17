@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% import "_bits.html" as bits with context %}
+{% block title %}Slet {{ pack.name }} — EBVB{% endblock %}
+{% block bodyclass %}is-tool{% endblock %}
+
+{# Sletning af en pakke har sin egen side i stedet for en confirm-boks:
+   den skal kunne sige praecist hvad der sker med hvert nummer, og den
+   virker uden JavaScript. #}
+
+{% block body %}
+<div class="crumb">
+  <a class="ghost" href="{{ url_for('pack_view', pack_id=pack.id) }}">Tilbage til pakken</a>
+</div>
+
+<main class="tool glass tool--narrow" id="indhold">
+  <h1 class="tool__title">Slet pakken?</h1>
+
+  <div class="ask ask--stack">
+    <p class="ask__text">
+      <b>{{ pack.name }}</b> bliver slettet{% if pack.description or pack.cover_file %}, med
+      beskrivelse og cover{% endif %}.
+    </p>
+    <p class="ask__text">
+      {% if tracks %}
+        <b>Numrene bliver ikke slettet.</b>
+        {{ 'Nummeret' if tracks|length == 1 else 'De ' ~ tracks|length ~ ' numre' }}
+        herunder bliver liggende i Beats og Music, med lyd, cover og alt
+        det andet. {{ 'Det' if tracks|length == 1 else 'De' }} ligger bare
+        ikke i en pakke længere.
+      {% else %}
+        Pakken er tom, så der er ingen numre der bliver berørt.
+      {% endif %}
+    </p>
+  </div>
+
+  {% if tracks %}
+    <ul class="keep">
+      {% for t in tracks %}
+        <li class="keep__row">
+          <span class="keep__title">{{ t.title }}</span>
+          <span class="grid__dir">{{ sections[t.section] }} · bliver liggende</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <form method="post" class="tool__bar">
+    <input type="hidden" name="bekraeft" value="{{ pack.id }}">
+    <a class="ghost" href="{{ url_for('pack_view', pack_id=pack.id) }}">Behold pakken</a>
+    <div class="tool__acts">
+      <button type="submit" class="solid solid--warn">
+        Slet pakken{% if tracks %} — behold numrene{% endif %}
+      </button>
+    </div>
+  </form>
+</main>
+{% endblock %}

@@ -3,15 +3,9 @@
 {% block title %}{{ sections[active] }} — EBVB{% endblock %}
 
 {% block body %}
-<nav class="tabs" aria-label="Sektioner">
-  {% for slug, label in sections.items() %}
-    <a class="tab{% if slug == active %} is-active{% endif %}"
-       href="{{ url_for('section', slug=slug) }}"
-       data-tab="{{ slug }}"
-       {% if slug == active %}aria-current="page"{% endif %}>{{ label }}</a>
-  {% endfor %}
+{% call bits.tabs(active) %}
   <button type="button" class="solid tabs__add" data-open-upload>Læg op</button>
-</nav>
+{% endcall %}
 
 <main class="stage" id="indhold">
   {% include "_plate.html" %}

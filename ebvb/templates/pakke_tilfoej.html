@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Tilføj numre — {{ pack.name }} — EBVB{% endblock %}
+{% block bodyclass %}is-tool{% endblock %}
+
+{% block body %}
+<div class="crumb">
+  <a class="ghost" href="{{ url_for('pack_view', pack_id=pack.id) }}">Tilbage til pakken</a>
+</div>
+
+<main class="tool glass" id="indhold">
+  <h1 class="tool__title">Tilføj numre</h1>
+  <p class="tool__lead">
+    Vælg de numre der skal i <b>{{ pack.name }}</b>. Det gælder også numre
+    der blev lagt op før der fandtes pakker. Et nummer kan kun ligge i én
+    pakke — vælger du et der allerede ligger i en anden, bliver det flyttet.
+    {% if not user.is_admin %}Du kan kun vælge dine egne numre.{% endif %}
+  </p>
+
+  {% if not count %}
+    <div class="empty">
+      <p class="empty__line">Ingen numre at tilføje.</p>
+      <p class="tool__lead">
+        {% if user.is_admin %}Alle numre ligger allerede i pakken.
+        {% else %}Alt du har lagt op, ligger allerede i pakken.{% endif %}
+      </p>
+    </div>
+  {% else %}
+    <form method="post" id="pack-add">
+      <div class="found__head">
+        <p class="found__sum" id="add-sum" role="status">
+          <b>{{ count }}</b> {{ 'nummer' if count == 1 else 'numre' }} at vælge imellem
+        </p>
+        <div class="pick-bar">
+          <label class="field field--inline">
+            <span class="sr">Søg</span>
+            <input type="search" id="add-filter" placeholder="Søg i titel eller filnavn">
+          </label>
+          <label class="field field--inline">
+            <span class="sr">Sektion</span>
+            <select id="add-section" class="dup__pick">
+              <option value="">Begge sektioner</option>
+              {% for slug, label in sections.items() %}
+                <option value="{{ slug }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="scroll">
+        <table class="grid">
+          <thead>
+            <tr>
+              <th class="grid__check"><span class="sr">Vælg</span></th>
+              <th>Titel</th>
+              <th>Hvor</th>
+              <th>Pakke nu</th>
+              <th class="grid__num">Lagt op</th>
+            </tr>
+          </thead>
+          {% for g in groups %}
+            <tbody data-group{% if g.batch %} data-batch="{{ g.batch }}"{% endif %}>
+              {% if g.batch and g.rows|length > 1 %}
+                <tr class="grid__group" data-group-head>
+                  <td colspan="5">
+                    <span>Mappe-upload · {{ dk_date(g.rows[0].created_at) }} · {{ g.rows|length }} numre</span>
+                    <button type="button" class="ghost ghost--tiny" data-select-group>Vælg hele uploaden</button>
+                  </td>
+                </tr>
+              {% endif %}
+              {% for t in g.rows %}
+                <tr data-row data-section="{{ t.section }}"
+                    data-search="{{ (t.title ~ ' ' ~ t.audio_name ~ ' ' ~ (t.pack_name or ''))|lower }}">
+                  <td class="grid__check">
+                    <input type="checkbox" name="track" value="{{ t.id }}"
+                           id="t-{{ t.id }}"
+                           {% if t.pack_id %}data-moves="1"{% endif %}
+                           {% if t.id in preselect %}checked{% endif %}>
+                  </td>
+                  <td>
+                    <label for="t-{{ t.id }}" class="grid__name grid__title">{{ t.title }}</label>
+                    <span class="grid__dir">{{ t.audio_name }}{% if t.uploader_id != user.id %} · {{ t.uploader }}{% endif %}</span>
+                  </td>
+                  <td>{{ sections[t.section] }}</td>
+                  <td>
+                    {% if t.pack_name %}
+                      <span class="badge badge--warn" title="Flyttes hvis du vælger det">{{ t.pack_name }}</span>
+                    {% else %}
+                      <span class="grid__dir">—</span>
+                    {% endif %}
+                  </td>
+                  <td class="grid__num">{{ dk_date(t.created_at) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          {% endfor %}
+        </table>
+      </div>
+
+      <div class="tool__bar tool__bar--sticky">
+        <p class="tool__note" id="add-note" role="status">Ingen valgt</p>
+        <div class="tool__acts">
+          <button type="submit" class="solid" id="add-go">Læg i pakken</button>
+        </div>
+      </div>
+    </form>
+  {% endif %}
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('pakker.js') }}" defer></script>
+{% endblock %}

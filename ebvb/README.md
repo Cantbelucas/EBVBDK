@@ -12,9 +12,14 @@ templates/                base, login, forsiden, profil
   _deck.html              afspilningsbaren
   mappe.html              læg en hel mappe op
   gennemse.html           ret titel, BPM og toneart på mange numre
+  pakker.html             oversigten over pakker
+  pakke.html              én pakke, i afspillerlayoutet
+  pakke_tilfoej.html      læg eksisterende numre i en pakke
+  pakke_slet.html         bekræftelse før en pakke slettes
 static/styles.css         al styling
 static/app.js             faner, afspiller, upload-ark
 static/mappe.js           mappe-upload og gennemse-tabellen
+static/pakker.js          vælg numre til en pakke
 static/theme.js           sætter lyst/mørkt før siden tegnes
 data/                     ← databasen og filerne. Skal ikke i git.
   ebvb.db
@@ -202,6 +207,79 @@ uploaden. Se punkt 3 øverst i [DEPLOY.md](DEPLOY.md).
   `rettet` når et delvist eller ulæst nummer er gennemset. Tom for
   enkeltfiler.
 
+## Pakker
+
+En pakke er en navngivet samling numre, fx "Fjolli september beats".
+Numrene er helt almindelige numre i Beats og Music — pakken er en
+gruppering ovenpå. Fanen **Pakker** står ved siden af Beats og Music.
+
+- En pakke har navn, ejer, dato, og kan have beskrivelse og cover. Uden
+  eget cover bruges coveret fra det første nummer der har ét.
+- **Et nummer ligger i højst én pakke.** Numre uden pakke opfører sig
+  som altid. I panelet ved siden af listen står pakken som et link, hvis
+  nummeret ligger i én.
+- Pakken viser **antal numre og samlet varighed**. Numre hvis længde ikke
+  kan læses (en ødelagt fil, et format der ikke kendes), tæller med i
+  antallet og står som "+ 2 uden kendt længde" — de bliver ikke gættet.
+- Klikker man en pakke, spilles numrene i samme layout som resten af
+  sitet: panel, bar i bunden, næste/forrige inden for pakken.
+
+**Kun ejeren** kan omdøbe pakken, ændre beskrivelse og cover, tilføje og
+fjerne numre og slette den. Admin kan alt. Man kan kun lægge sine egne
+numre i en pakke (admin: alle). Et nummers ejer kan altid tage sit eget
+nummer ud af en andens pakke.
+
+**Sletter man en pakke, slettes numrene ikke.** Det sker på en side for
+sig, der viser hvert nummer i pakken med "bliver liggende", og knappen
+hedder "Slet pakken — behold numrene". Databasen sikrer det samme:
+`tracks.pack_id` har `ON DELETE SET NULL`.
+
+### Pakker og mappe-upload
+
+Når man vælger en mappe, foreslås **mappens navn som pakkenavn**
+(`Fjolli_september_beats` → `Fjolli september beats`). Navnet kan rettes,
+og fluebenet kan fjernes, så der ikke laves en pakke.
+
+- Pakken laves først når det første nummer er lagt op. Springes alt over,
+  bliver der ingen tom pakke.
+- Et nummer der **overskrives**, bliver i den pakke det allerede ligger i.
+  Ligger det ikke i en, kommer det med i den nye.
+- Numre der fandtes i forvejen og blev **sprunget over**, kommer ikke med
+  af sig selv. Bagefter står der hvor mange, med et link der åbner
+  "Tilføj numre" med dem valgt på forhånd.
+
+### Numre fra før der fandtes pakker
+
+"Tilføj numre" på en pakke viser alt man selv har lagt op, uanset
+hvornår. Numre fra samme mappe-upload står samlet med en **Vælg hele
+uploaden**-knap, så en gammel mappe kan lægges i en pakke på én gang.
+Vælger man et nummer der ligger i en anden pakke, bliver det flyttet —
+det står ved nummeret, og tælleren nederst siger hvor mange.
+
+### Varighed
+
+Appen læser nu hvert nummers længde fra filens header, uden at hente
+filen og uden nye afhængigheder: wav (også 24-bit, float og optagelser
+med forkert længde i headeren), mp3 (VBR med Xing/Info eller VBRI, og
+konstant bitrate), flac, aiff, m4a og ogg (Vorbis og Opus). Kan den ikke
+læses, gemmes `-1`.
+
+Numre lagt op før denne version bliver målt første gang de vises i en
+pakke. Der er ikke noget at køre.
+
+### Databasen
+
+- Ny tabel `packs`: `id`, `name`, `description`, `cover_file`,
+  `owner_id`, `batch_id` (hvilken mappe-upload der lavede den, ellers
+  tom) og `created_at`.
+- `tracks.pack_id` — pakken, eller `NULL`.
+- `tracks.duration` — sekunder. `NULL` = ikke målt endnu, `-1` = kunne
+  ikke læses.
+
+Alt det laves af `init_storage()` ved opstart, ligesom de tidligere
+kolonner. En eksisterende database opgraderes af sig selv, og det kan
+køres igen uden at ødelægge noget.
+
 ## Hent en hel mappe ind fra serveren
 
 Til at flytte en eksisterende samling ind i appen — fx det der ligger i
@@ -280,6 +358,11 @@ eneste to kald ud af huset. Vil du have den helt lukket, som portfolioen:
 - Siden virker uden JavaScript, den bliver bare kedeligere: begge lister
   vises på én gang, og sporene hentes i stedet for at blive afspillet.
 - Mellemrumstasten er play/pause, når markøren ikke står i et felt.
+- Der er ingen inline-scripts eller `on…`-attributter nogen steder, så
+  siden virker under `script-src 'self'`. Bekræftelser ("Slet sporet for
+  altid?") sættes med `data-confirm` på formularen og håndteres i
+  `app.js`. Før stod de som `onsubmit`, og den stramme CSP blokerede dem
+  — så blev sporet slettet uden at der blev spurgt.
 - Formater der kan lægges op: wav, mp3, m4a, aac, flac, ogg, opus, aiff.
   Om de kan afspilles i browseren afhænger af browseren — wav og mp3 kan
   alle. Kan den ikke afspille filen, siger pladen det og tilbyder

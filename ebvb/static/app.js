@@ -30,9 +30,40 @@
     paintTheme();
   }
 
+  /* ---------- Bekraeftelser ---------- */
+
+  /* CSP'en tillader ingen inline-scripts, saa onsubmit="return confirm()"
+     bliver aldrig koert - og saa sendes formularen uden at spoerge.
+     Formularer med data-confirm spoerges her i stedet. */
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (form.dataset && form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
+      event.preventDefault();
+    }
+  });
+
+  /* ---------- Ark (dialoger) ---------- */
+
+  /* data-open-sheet="id" aabner <dialog id="id">, data-close-sheet
+     lukker det ark knappen staar i. */
+  document.querySelectorAll("[data-open-sheet]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var sheet = document.getElementById(btn.dataset.openSheet);
+      if (sheet && sheet.showModal) sheet.showModal();
+    });
+  });
+  document.querySelectorAll("[data-close-sheet]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var sheet = btn.closest("dialog");
+      if (sheet) sheet.close();
+    });
+  });
+
   /* ---------- Faner ---------- */
 
-  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab"));
+  // Kun fanerne der skifter liste paa stedet. "Pakker" er et almindeligt
+  // link, og det samme er Beats og Music paa alle andre sider.
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab[data-tab]"));
   var lists = Array.prototype.slice.call(document.querySelectorAll(".list"));
 
   function showSection(slug, push) {
@@ -94,6 +125,8 @@
   var dDate = document.getElementById("d-date");
   var dFile = document.getElementById("d-file");
   var dLen = document.getElementById("d-len");
+  var dPackWrap = document.getElementById("d-pack-wrap");
+  var dPack = document.getElementById("d-pack");
 
   var deckImg = document.getElementById("deck-img");
   var deckTitle = document.getElementById("deck-title");
@@ -172,6 +205,13 @@
     dDate.textContent = row.dataset.date || "—";
     dFile.textContent = row.dataset.file || "—";
     dLen.textContent = "—";
+
+    // Numre uden pakke viser ingen pakke-linje - som foer.
+    if (dPackWrap) {
+      dPackWrap.hidden = !row.dataset.pack;
+      dPack.textContent = row.dataset.pack || "—";
+      dPack.href = row.dataset.packUrl || "#";
+    }
 
     if (row.dataset.note) {
       dNote.textContent = row.dataset.note;

@@ -122,6 +122,16 @@ CREATE TABLE IF NOT EXISTS users (
     bio         TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS packs (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    cover_file  TEXT NOT NULL DEFAULT '',
+    owner_id    INTEGER NOT NULL REFERENCES users(id),
+    batch_id    TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS tracks (
     id          TEXT PRIMARY KEY,
     section     TEXT NOT NULL,
@@ -136,7 +146,9 @@ CREATE TABLE IF NOT EXISTS tracks (
     uploader_id INTEGER NOT NULL REFERENCES users(id),
     created_at  TEXT NOT NULL,
     batch_id    TEXT NOT NULL DEFAULT '',
-    parsed      TEXT NOT NULL DEFAULT ''
+    parsed      TEXT NOT NULL DEFAULT '',
+    pack_id     TEXT REFERENCES packs(id) ON DELETE SET NULL,
+    duration    REAL
 );
 
 CREATE INDEX IF NOT EXISTS tracks_section ON tracks(section, created_at DESC);
@@ -169,11 +181,21 @@ def close_db(_exc):
 #                    'delvis'  noget, men ikke det hele
 #                    'ingen'   intet - filnavnet er brugt som titel
 #                    'rettet'  var delvis/ingen, og er gennemset siden
+# tracks.pack_id   pakken sporet ligger i, eller NULL. Slettes pakken,
+#                  saetter SQLite den selv til NULL - sporet bliver.
+# tracks.duration  sekunder, laest fra filens header. NULL = ikke maalt
+#                  endnu, -1 = kunne ikke laeses. Se fill_durations().
+#
+# Tabellen packs er ny og laves af CREATE TABLE IF NOT EXISTS i SCHEMA.
 LATER_COLUMNS = (
     ("users", "avatar_file", "TEXT NOT NULL DEFAULT ''"),
     ("users", "bio", "TEXT NOT NULL DEFAULT ''"),
     ("tracks", "batch_id", "TEXT NOT NULL DEFAULT ''"),
     ("tracks", "parsed", "TEXT NOT NULL DEFAULT ''"),
+    # En kolonne med REFERENCES skal have NULL som default for at kunne
+    # tilfoejes med ALTER TABLE.
+    ("tracks", "pack_id", "TEXT REFERENCES packs(id) ON DELETE SET NULL"),
+    ("tracks", "duration", "REAL"),
 )
 
 
@@ -188,8 +210,13 @@ def migrate(conn):
                 # at se kolonnen mangle. Den anden faar saa denne fejl.
                 if "duplicate column" not in str(exc):
                     raise
-    # Indekset kan foerst laves naar kolonnen findes.
+    # Indeksene kan foerst laves naar kolonnerne findes.
     conn.execute("CREATE INDEX IF NOT EXISTS tracks_batch ON tracks(batch_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS tracks_pack ON tracks(pack_id)")
+    # En mappe-upload giver hoejst en pakke. Uden den her kunne to
+    # samtidige bidder hver lave sin.
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS packs_batch"
+                 " ON packs(owner_id, batch_id) WHERE batch_id != ''")
 
 
 def init_storage():
@@ -280,6 +307,7 @@ def inject():
         "sections": SECTIONS,
         "dk_date": dk_date,
         "human_size": human_size,
+        "clock": clock,
         "asset": asset,
     }
 
@@ -314,6 +342,270 @@ def json_error(status, message, **extra):
 
 def can_edit(track, user):
     return track["uploader_id"] == user["id"] or bool(user["is_admin"])
+
+
+def can_edit_pack(pack, user):
+    return pack["owner_id"] == user["id"] or bool(user["is_admin"])
+
+
+# Et spor med navnet paa den der lagde det op, og pakken det ligger i.
+TRACK_SELECT = ("SELECT t.*, u.name AS uploader, p.name AS pack_name"
+                "  FROM tracks t JOIN users u ON u.id = t.uploader_id"
+                "  LEFT JOIN packs p ON p.id = t.pack_id")
+
+
+def clock(seconds):
+    """Samme format som uret i baren: 3:07, eller 1:02:07 over en time."""
+    if seconds is None or seconds <= 0:
+        return "—"
+    total = int(round(seconds))
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return "{0}:{1:02d}:{2:02d}".format(hours, minutes, secs)
+    return "{0}:{1:02d}".format(minutes, secs)
+
+
+# --------------------------------------------------------------------
+# Varighed
+#
+# Appen kender ellers kun et spors laengde naar browseren har hentet
+# det. En pakke skal kunne vise samlet varighed uden at hente 40 filer,
+# saa laengden laeses her fra filens header. Kun standardbiblioteket:
+# RIFF/wav, mp3 (Xing/Info, VBRI eller konstant bitrate), flac, aiff,
+# m4a og ogg. Det man ikke kan laese, bliver None - aldrig et gaet.
+# --------------------------------------------------------------------
+
+_MP3_KBPS = {
+    (True, 1): (32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448),
+    (True, 2): (32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384),
+    (True, 3): (32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320),
+    (False, 1): (32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256),
+    (False, 2): (8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160),
+    (False, 3): (8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160),
+}
+_MP3_RATES = {3: (44100, 48000, 32000), 2: (22050, 24000, 16000), 0: (11025, 12000, 8000)}
+
+
+def _be(b):
+    return int.from_bytes(b, "big")
+
+
+def _le(b):
+    return int.from_bytes(b, "little")
+
+
+def _skip_id3(fh):
+    """ID3v2-tags foran lyden. Kan indeholde et cover paa flere MB."""
+    pos = 0
+    while True:
+        fh.seek(pos)
+        head = fh.read(10)
+        if len(head) < 10 or head[:3] != b"ID3":
+            return pos
+        size = (head[6] << 21) | (head[7] << 14) | (head[8] << 7) | head[9]
+        pos += 10 + size + (10 if head[5] & 0x10 else 0)
+
+
+def _mp3_header(b):
+    if len(b) < 4 or b[0] != 0xFF or (b[1] & 0xE0) != 0xE0:
+        return None
+    version = (b[1] >> 3) & 3
+    layer = 4 - ((b[1] >> 1) & 3)
+    rate_i = (b[2] >> 2) & 3
+    kbps_i = (b[2] >> 4) & 15
+    if version == 1 or layer == 4 or rate_i == 3 or kbps_i in (0, 15):
+        return None
+    mpeg1 = version == 3
+    kbps = _MP3_KBPS[(mpeg1, layer)][kbps_i - 1]
+    rate = _MP3_RATES[version][rate_i]
+    pad = (b[2] >> 1) & 1
+    if layer == 1:
+        length = (12 * kbps * 1000 // rate + pad) * 4
+        spf = 384
+    else:
+        spf = 1152 if (layer == 2 or mpeg1) else 576
+        length = spf // 8 * kbps * 1000 // rate + pad
+    return {"mpeg1": mpeg1, "layer": layer, "kbps": kbps, "rate": rate,
+            "spf": spf, "length": length, "mono": (b[3] >> 6) & 3 == 3}
+
+
+def _mp3(fh, size):
+    start = _skip_id3(fh)
+    fh.seek(start)
+    buf = fh.read(256 * 1024)
+    for i in range(len(buf) - 4):
+        h = _mp3_header(buf[i:i + 4])
+        if h is None:
+            continue
+        # Et tilfaeldigt 0xFFE i data ligner en header. Den naeste ramme
+        # skal ligge lige efter, ellers var det ikke en.
+        nxt = i + h["length"]
+        if nxt + 4 <= len(buf) and _mp3_header(buf[nxt:nxt + 4]) is None:
+            continue
+
+        side = (17 if h["mono"] else 32) if h["mpeg1"] else (9 if h["mono"] else 17)
+        xing = buf[i + 4 + side:i + 4 + side + 12]
+        if xing[:4] in (b"Xing", b"Info") and _be(xing[4:8]) & 1:
+            return _be(xing[8:12]) * h["spf"] / h["rate"]
+        vbri = buf[i + 36:i + 36 + 18]
+        if vbri[:4] == b"VBRI":
+            return _be(vbri[14:18]) * h["spf"] / h["rate"]
+
+        end = size
+        fh.seek(max(0, size - 128))
+        if fh.read(3) == b"TAG":
+            end -= 128
+        return (end - start - i) * 8 / (h["kbps"] * 1000)
+    return None
+
+
+def _wav(fh, size):
+    fh.seek(0)
+    head = fh.read(12)
+    if head[8:12] != b"WAVE":
+        return None
+    order = "big" if head[:4] == b"RIFX" else "little"
+    pos, byte_rate = 12, 0
+    for _ in range(200):
+        fh.seek(pos)
+        chunk = fh.read(8)
+        if len(chunk) < 8:
+            return None
+        kind, length = chunk[:4], int.from_bytes(chunk[4:8], order)
+        if kind == b"fmt ":
+            byte_rate = int.from_bytes(fh.read(16)[8:12], order)
+        elif kind == b"data":
+            # Optagere der skriver direkte, saetter tit laengden til 0
+            # eller 0xFFFFFFFF. Saa er det resten af filen der er lyd.
+            room = size - pos - 8
+            if length == 0 or length > room:
+                length = room
+            return length / byte_rate if byte_rate else None
+        pos += 8 + length + (length & 1)
+    return None
+
+
+def _aiff(fh, size):
+    fh.seek(0)
+    head = fh.read(12)
+    if head[8:12] not in (b"AIFF", b"AIFC"):
+        return None
+    pos = 12
+    for _ in range(200):
+        fh.seek(pos)
+        chunk = fh.read(8)
+        if len(chunk) < 8:
+            return None
+        length = _be(chunk[4:8])
+        if chunk[:4] == b"COMM":
+            body = fh.read(18)
+            frames = _be(body[2:6])
+            exponent = _be(body[8:10]) & 0x7FFF
+            rate = _be(body[10:18]) * 2.0 ** (exponent - 16383 - 63)
+            return frames / rate if rate else None
+        pos += 8 + length + (length & 1)
+    return None
+
+
+def _flac(fh, size):
+    start = _skip_id3(fh)
+    fh.seek(start)
+    if fh.read(4) != b"fLaC":
+        return None
+    block = fh.read(4)
+    if block[0] & 0x7F != 0:                    # STREAMINFO skal komme foerst
+        return None
+    bits = _be(fh.read(34)[10:18])
+    rate, frames = bits >> 44, bits & ((1 << 36) - 1)
+    return frames / rate if rate and frames else None
+
+
+def _mp4(fh, size):
+    pos = 0
+    for _ in range(64):
+        fh.seek(pos)
+        head = fh.read(8)
+        if len(head) < 8:
+            return None
+        length, kind, skip = _be(head[:4]), head[4:8], 8
+        if length == 1:
+            length, skip = _be(fh.read(8)), 16
+        elif length == 0:
+            length = size - pos
+        if length < skip:
+            return None
+        if kind == b"moov":
+            body = fh.read(min(length - skip, 32 * 1024 * 1024))
+            i = body.find(b"mvhd")
+            if i < 0:
+                return None
+            if body[i + 4] == 1:
+                scale, units = _be(body[i + 24:i + 28]), _be(body[i + 28:i + 36])
+            else:
+                scale, units = _be(body[i + 16:i + 20]), _be(body[i + 20:i + 24])
+            return units / scale if scale else None
+        pos += length
+    return None
+
+
+def _ogg(fh, size):
+    fh.seek(0)
+    head = fh.read(8192)
+    j = head.find(b"OpusHead")
+    if j >= 0:
+        rate, preskip = 48000, _le(head[j + 10:j + 12])
+    else:
+        j = head.find(b"\x01vorbis")
+        if j < 0:
+            return None
+        rate, preskip = _le(head[j + 12:j + 16]), 0
+    fh.seek(max(0, size - 65536))
+    tail = fh.read()
+    k = tail.rfind(b"OggS")
+    if k < 0 or not rate:
+        return None
+    return (_le(tail[k + 6:k + 14]) - preskip) / rate
+
+
+def audio_duration(path):
+    """Sekunder, eller None. Laeser kun headeren - aldrig hele filen."""
+    try:
+        size = path.stat().st_size
+        with open(path, "rb") as fh:
+            head = fh.read(12)
+            if head[:4] in (b"RIFF", b"RIFX"):
+                seconds = _wav(fh, size)
+            elif head[:4] == b"FORM":
+                seconds = _aiff(fh, size)
+            elif head[:4] == b"OggS":
+                seconds = _ogg(fh, size)
+            elif head[4:8] == b"ftyp":
+                seconds = _mp4(fh, size)
+            else:
+                seconds = _flac(fh, size)
+                if seconds is None:
+                    seconds = _mp3(fh, size)
+    except (OSError, ValueError, IndexError, KeyError, ZeroDivisionError):
+        return None
+    if seconds is None or not (0 < seconds < 24 * 3600):
+        return None
+    return seconds
+
+
+def fill_durations(where="1", params=()):
+    """Maaler de spor der ikke er maalt endnu. Spor lagt op foer
+    varigheden kom til, bliver maalt foerste gang nogen ser dem i en
+    pakke - saa kraever opgraderingen ikke en kommando."""
+    rows = db().execute(
+        "SELECT t.id, t.audio_file FROM tracks t"
+        " WHERE t.duration IS NULL AND (" + where + ")", params).fetchall()
+    for row in rows:
+        seconds = audio_duration(MEDIA / row["audio_file"])
+        db().execute("UPDATE tracks SET duration = ? WHERE id = ?",
+                     (seconds if seconds else -1, row["id"]))
+    if rows:
+        db().commit()
 
 
 # --------------------------------------------------------------------
@@ -540,11 +832,7 @@ def index():
 def section(slug):
     if slug not in SECTIONS:
         abort(404)
-    rows = db().execute(
-        "SELECT t.*, u.name AS uploader"
-        "  FROM tracks t JOIN users u ON u.id = t.uploader_id"
-        " ORDER BY t.created_at DESC"
-    ).fetchall()
+    rows = db().execute(TRACK_SELECT + " ORDER BY t.created_at DESC").fetchall()
     tracks = {key: [r for r in rows if r["section"] == key] for key in SECTIONS}
     return render_template("index.html", active=slug, tracks=tracks)
 
@@ -595,14 +883,14 @@ def upload():
 
     db().execute(
         "INSERT INTO tracks (id, section, title, bpm, mkey, note, audio_file,"
-        " audio_name, audio_size, cover_file, uploader_id, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " audio_name, audio_size, cover_file, uploader_id, created_at, duration)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (track_id, slug, title[:120],
          (request.form.get("bpm") or "").strip()[:8],
          (request.form.get("mkey") or "").strip()[:12],
          (request.form.get("note") or "").strip()[:400],
          audio_file, clean_name(audio.filename), size, cover_file,
-         user["id"], now()),
+         user["id"], now(), audio_duration(MEDIA / audio_file) or -1),
     )
     db().commit()
     return redirect(url_for("section", slug=slug) + "#" + track_id)
@@ -628,15 +916,15 @@ def folder_page():
     if slug not in SECTIONS:
         slug = "beats"
     return render_template("mappe.html", active=slug,
-                           chunk_bytes=CHUNK_BYTES, max_bytes=MAX_BYTES)
+                           chunk_bytes=CHUNK_BYTES, max_bytes=MAX_BYTES,
+                           pack_name_max=PACK_NAME_MAX)
 
 
 def find_duplicate(slug, name, user):
     """Et spor i samme sektion med samme filnavn. Findes der flere, er
     ens eget det der taeller - det er det eneste man kan overskrive."""
     return db().execute(
-        "SELECT t.*, u.name AS uploader"
-        "  FROM tracks t JOIN users u ON u.id = t.uploader_id"
+        TRACK_SELECT +
         " WHERE t.section = ? AND t.audio_name = ? COLLATE NOCASE"
         " ORDER BY (t.uploader_id = ?) DESC, t.created_at DESC"
         " LIMIT 1", (slug, name, user["id"])
@@ -681,9 +969,11 @@ def folder_check():
         meta = parse_filename(name, user["name"])
         dup = find_duplicate(slug, name, user)
         meta["duplicate"] = None if dup is None else {
+            "id": dup["id"],
             "title": dup["title"],
             "by": dup["uploader"],
             "own": can_edit(dup, user),
+            "pack": dup["pack_name"],
         }
         out.append(meta)
 
@@ -701,6 +991,9 @@ def folder_chunk():
     slug = form.get("section", "")
     name = clean_name(form.get("name", ""))
     on_dup = form.get("duplicate", "skip")
+    # Tom = ingen pakke. Ellers havner sporet i uploadens pakke, som
+    # laves naar det foerste spor er lagt op.
+    pack_name = clean_pack_name(form.get("pack_name"))
     if not HEX32.fullmatch(upload_id) or not HEX32.fullmatch(batch):
         return json_error(400, "Ugyldig upload.")
     if slug not in SECTIONS:
@@ -754,14 +1047,28 @@ def folder_chunk():
     if have < size:
         return jsonify({"status": "part", "have": have})
 
-    return finish_folder_file(part, user, slug, batch, name, on_dup)
+    return finish_folder_file(part, user, slug, batch, name, on_dup, pack_name)
 
 
-def finish_folder_file(part, user, slug, batch, name, on_dup):
+def pack_for_batch(user, batch, name):
+    """Uploadens pakke. Laves foerste gang et spor er lagt op, saa en
+    upload hvor alt blev sprunget over, ikke efterlader en tom pakke.
+    Navnet fra foerste bid gaelder; det er laast i browseren imens."""
+    db().execute(
+        "INSERT OR IGNORE INTO packs (id, name, owner_id, batch_id, created_at)"
+        " VALUES (?,?,?,?,?)",
+        (uuid.uuid4().hex, name, user["id"], batch, now()))
+    return db().execute(
+        "SELECT id FROM packs WHERE owner_id = ? AND batch_id = ?",
+        (user["id"], batch)).fetchone()["id"]
+
+
+def finish_folder_file(part, user, slug, batch, name, on_dup, pack_name=""):
     size = part.stat().st_size
     ext = ext_of(name)
     meta = parse_filename(name, user["name"])
     dup = find_duplicate(slug, name, user)
+    duration = audio_duration(part) or -1
 
     if dup is not None and on_dup == "skip":
         part.unlink(missing_ok=True)
@@ -788,34 +1095,42 @@ def finish_folder_file(part, user, slug, batch, name, on_dup):
             except OSError:
                 app.logger.warning("kunne ikke slette %s", dup["audio_file"])
 
+        # Et spor der allerede ligger i en pakke, bliver i den. En ny
+        # version af en fil maa ikke stille flytte den ud af sin pakke.
+        pack_id = dup["pack_id"]
+        if pack_name and pack_id is None:
+            pack_id = pack_for_batch(user, batch, pack_name)
+
         db().execute(
             "UPDATE tracks SET title = ?, bpm = ?, mkey = ?, audio_file = ?,"
-            " audio_name = ?, audio_size = ?, batch_id = ?, parsed = ?"
+            " audio_name = ?, audio_size = ?, batch_id = ?, parsed = ?,"
+            " duration = ?, pack_id = ?"
             " WHERE id = ?",
-            (title[:120], bpm, mkey, audio_file, name, size, batch, parsed, dup["id"]),
+            (title[:120], bpm, mkey, audio_file, name, size, batch, parsed,
+             duration, pack_id, dup["id"]),
         )
         db().commit()
-        return jsonify({"status": "overwritten", "id": dup["id"]})
+        return jsonify({"status": "overwritten", "id": dup["id"], "pack": pack_id})
 
     track_id = uuid.uuid4().hex
     audio_file = track_id + ext
     os.replace(part, MEDIA / audio_file)
+    pack_id = pack_for_batch(user, batch, pack_name) if pack_name else None
     db().execute(
         "INSERT INTO tracks (id, section, title, bpm, mkey, note, audio_file,"
         " audio_name, audio_size, cover_file, uploader_id, created_at,"
-        " batch_id, parsed)"
-        " VALUES (?,?,?,?,?,'',?,?,?,'',?,?,?,?)",
+        " batch_id, parsed, duration, pack_id)"
+        " VALUES (?,?,?,?,?,'',?,?,?,'',?,?,?,?,?,?)",
         (track_id, slug, meta["title"], meta["bpm"], meta["mkey"], audio_file,
-         name, size, user["id"], now(), batch, meta["parsed"]),
+         name, size, user["id"], now(), batch, meta["parsed"], duration, pack_id),
     )
     db().commit()
-    return jsonify({"status": "added", "id": track_id})
+    return jsonify({"status": "added", "id": track_id, "pack": pack_id})
 
 
 def review(where, params, mode, batch=""):
     """Tabellen hvor titel, BPM og toneart rettes, og gemmes paa en gang."""
-    sql = ("SELECT t.*, u.name AS uploader"
-           "  FROM tracks t JOIN users u ON u.id = t.uploader_id"
+    sql = (TRACK_SELECT +
            " WHERE " + where +
            " ORDER BY t.audio_name COLLATE NOCASE")
 
@@ -879,11 +1194,7 @@ def review_pending():
 
 
 def track_or_404(track_id):
-    row = db().execute(
-        "SELECT t.*, u.name AS uploader"
-        "  FROM tracks t JOIN users u ON u.id = t.uploader_id"
-        " WHERE t.id = ?", (track_id,)
-    ).fetchone()
+    row = db().execute(TRACK_SELECT + " WHERE t.id = ?", (track_id,)).fetchone()
     if row is None:
         abort(404)
     return row
@@ -947,8 +1258,7 @@ def delete(track_id):
 
 def tracks_by(user_id):
     return db().execute(
-        "SELECT t.*, u.name AS uploader"
-        "  FROM tracks t JOIN users u ON u.id = t.uploader_id"
+        TRACK_SELECT +
         " WHERE t.uploader_id = ?"
         " ORDER BY t.created_at DESC", (user_id,)
     ).fetchall()
@@ -1020,6 +1330,276 @@ def profile_edit():
             app.logger.warning("kunne ikke slette %s", AVATARS / old_avatar)
 
     return redirect(url_for("profile", navn=me["name"]))
+
+
+# --------------------------------------------------------------------
+# Pakker
+#
+# En navngiven samling spor, fx "Fjolli september beats". Sporene er
+# helt almindelige spor; pakken er en gruppering ovenpaa. Et spor ligger
+# i hoejst en pakke (tracks.pack_id), og slettes pakken, bliver sporene
+# liggende uden.
+#
+#   GET  /pakker                 oversigten
+#   POST /pakker/ny              ny tom pakke
+#   GET  /pakke/<id>             sporene i afspillerlayoutet
+#   POST /pakke/<id>/rediger     navn, beskrivelse, cover
+#   GET  /pakke/<id>/tilfoej     vaelg eksisterende spor
+#   POST /pakke/<id>/fjern       et spor ud af pakken
+#   GET  /pakke/<id>/slet        bekraeftelse - hvad der sker med sporene
+#   POST /pakke/<id>/slet        slet pakken
+#
+# Kun ejeren redigerer en pakke. Admin kan alt.
+# --------------------------------------------------------------------
+
+PACK_NAME_MAX = 80
+PACK_TEXT_MAX = 600
+
+PACK_SELECT = """
+SELECT p.*, u.name AS owner,
+       COUNT(t.id) AS n,
+       COALESCE(SUM(CASE WHEN t.duration > 0 THEN t.duration END), 0) AS seconds,
+       COALESCE(SUM(CASE WHEN t.id IS NOT NULL
+                          AND (t.duration IS NULL OR t.duration <= 0)
+                         THEN 1 END), 0) AS unknown,
+       (SELECT t2.id FROM tracks t2
+         WHERE t2.pack_id = p.id AND t2.cover_file != ''
+         ORDER BY t2.audio_name COLLATE NOCASE LIMIT 1) AS art_track
+  FROM packs p
+  JOIN users u ON u.id = p.owner_id
+  LEFT JOIN tracks t ON t.pack_id = p.id
+"""
+
+
+def clean_pack_name(text):
+    text = unicodedata.normalize("NFC", text or "")
+    text = re.sub(r"[\x00-\x1f\x7f]", "", text)
+    return re.sub(r"\s+", " ", text).strip()[:PACK_NAME_MAX]
+
+
+def pack_or_404(pack_id):
+    if not HEX32.fullmatch(pack_id or ""):
+        abort(404)
+    fill_durations("t.pack_id = ?", (pack_id,))
+    row = db().execute(PACK_SELECT + " WHERE p.id = ? GROUP BY p.id",
+                       (pack_id,)).fetchone()
+    if row is None:
+        abort(404)
+    return row
+
+
+def pack_editable_or_403(pack_id):
+    pack = pack_or_404(pack_id)
+    if not can_edit_pack(pack, current_user()):
+        abort(403)
+    return pack
+
+
+def save_cover(storage, label):
+    """Gemmer et billede i COVERS under et nyt uuid-navn, som ogsaa er
+    cache-buster. Returnerer filnavnet, eller '' hvis det blev afvist."""
+    if storage is None or not storage.filename:
+        return ""
+    ext = ext_of(storage.filename)
+    if ext not in IMAGE_EXT:
+        flash("{0} blev sprunget over. {1} er ikke et billedformat."
+              .format(label, ext or "Filen har ingen endelse"))
+        return ""
+    init_storage()
+    name = uuid.uuid4().hex + ext
+    storage.save(COVERS / name)
+    if (COVERS / name).stat().st_size > MAX_COVER_BYTES:
+        (COVERS / name).unlink()
+        flash("{0} var over 12 MB og blev sprunget over.".format(label))
+        return ""
+    return name
+
+
+def drop_cover(name):
+    if name:
+        try:
+            (COVERS / name).unlink(missing_ok=True)
+        except OSError:
+            app.logger.warning("kunne ikke slette %s", COVERS / name)
+
+
+@app.get("/pakker")
+@login_required
+def packs():
+    fill_durations("t.pack_id IS NOT NULL")
+    rows = db().execute(
+        PACK_SELECT + " GROUP BY p.id ORDER BY p.created_at DESC").fetchall()
+    return render_template("pakker.html", packs=rows, active="pakker",
+                           name_max=PACK_NAME_MAX, text_max=PACK_TEXT_MAX)
+
+
+@app.post("/pakker/ny")
+@login_required
+def pack_create():
+    name = clean_pack_name(request.form.get("name"))
+    if not name:
+        flash("Pakken skal have et navn.")
+        return redirect(url_for("packs"))
+    pack_id = uuid.uuid4().hex
+    db().execute(
+        "INSERT INTO packs (id, name, description, cover_file, owner_id, created_at)"
+        " VALUES (?,?,?,?,?,?)",
+        (pack_id, name, (request.form.get("description") or "").strip()[:PACK_TEXT_MAX],
+         save_cover(request.files.get("cover"), "Coveret"),
+         current_user()["id"], now()))
+    db().commit()
+    # En tom pakke er ikke til noget. Direkte videre til at fylde den.
+    return redirect(url_for("pack_add", pack_id=pack_id))
+
+
+@app.get("/pakke/<pack_id>")
+@login_required
+def pack_view(pack_id):
+    pack = pack_or_404(pack_id)
+    rows = db().execute(
+        TRACK_SELECT + " WHERE t.pack_id = ? ORDER BY t.audio_name COLLATE NOCASE",
+        (pack_id,)).fetchall()
+    return render_template("pakke.html", pack=pack, tracks=rows,
+                           can_edit_pack=can_edit_pack(pack, current_user()),
+                           name_max=PACK_NAME_MAX, text_max=PACK_TEXT_MAX)
+
+
+@app.get("/pakke/<pack_id>/cover")
+@login_required
+def pack_cover(pack_id):
+    row = db().execute("SELECT cover_file FROM packs WHERE id = ?",
+                       (pack_id,)).fetchone()
+    if row is None or not row["cover_file"]:
+        abort(404)
+    return send_file(COVERS / row["cover_file"], conditional=True,
+                     max_age=60 * 60 * 24 * 30)
+
+
+@app.post("/pakke/<pack_id>/rediger")
+@login_required
+def pack_edit(pack_id):
+    pack = pack_editable_or_403(pack_id)
+    name = clean_pack_name(request.form.get("name")) or pack["name"]
+
+    old_cover = pack["cover_file"]
+    new_cover = old_cover
+    if request.form.get("fjern_cover"):
+        new_cover = ""
+    else:
+        new_cover = save_cover(request.files.get("cover"), "Coveret") or old_cover
+
+    db().execute(
+        "UPDATE packs SET name = ?, description = ?, cover_file = ? WHERE id = ?",
+        (name, (request.form.get("description") or "").strip()[:PACK_TEXT_MAX],
+         new_cover, pack_id))
+    db().commit()
+    if old_cover != new_cover:
+        drop_cover(old_cover)
+    return redirect(url_for("pack_view", pack_id=pack_id))
+
+
+@app.route("/pakke/<pack_id>/tilfoej", methods=["GET", "POST"])
+@login_required
+def pack_add(pack_id):
+    """Eksisterende spor ind i pakken - ogsaa dem der blev lagt op foer
+    der fandtes pakker. Man kan kun flytte spor man selv maa redigere."""
+    pack = pack_editable_or_403(pack_id)
+    user = current_user()
+
+    where, params = "(t.pack_id IS NULL OR t.pack_id != ?)", [pack_id]
+    if not user["is_admin"]:
+        where += " AND t.uploader_id = ?"
+        params.append(user["id"])
+    candidates = db().execute(
+        TRACK_SELECT + " WHERE " + where + " ORDER BY t.created_at DESC, t.audio_name",
+        params).fetchall()
+
+    if request.method == "POST":
+        allowed = {r["id"]: r for r in candidates}
+        added = moved = 0
+        for track_id in request.form.getlist("track"):
+            row = allowed.get(track_id)
+            if row is None or not can_edit(row, user):
+                continue
+            moved += row["pack_id"] is not None
+            db().execute("UPDATE tracks SET pack_id = ? WHERE id = ?", (pack_id, track_id))
+            added += 1
+        db().commit()
+        if not added:
+            flash("Du valgte ingen numre.")
+            return redirect(url_for("pack_add", pack_id=pack_id))
+        flash("{0} {1} lagt i pakken{2}.".format(
+            added, "nummer" if added == 1 else "numre",
+            " — {0} flyttet fra en anden pakke".format(moved) if moved else ""))
+        return redirect(url_for("pack_view", pack_id=pack_id))
+
+    # Spor fra samme mappe-upload staar i en gruppe, saa en hel gammel
+    # upload kan vaelges paa en gang.
+    groups = []
+    for row in candidates:
+        key = row["batch_id"] or None
+        if groups and key and groups[-1]["batch"] == key:
+            groups[-1]["rows"].append(row)
+        else:
+            groups.append({"batch": key, "rows": [row]})
+
+    preselect = set((request.args.get("vaelg") or "").split(","))
+    return render_template("pakke_tilfoej.html", pack=pack, groups=groups,
+                           count=len(candidates), preselect=preselect)
+
+
+@app.post("/pakke/<pack_id>/fjern")
+@login_required
+def pack_remove(pack_id):
+    pack = pack_or_404(pack_id)
+    user = current_user()
+    row = db().execute(TRACK_SELECT + " WHERE t.id = ? AND t.pack_id = ?",
+                       (request.form.get("track", ""), pack_id)).fetchone()
+    if row is None:
+        abort(404)
+    # Pakkens ejer rydder op i sin pakke; sporets ejer kan altid tage sit
+    # eget spor ud igen.
+    if not (can_edit_pack(pack, user) or can_edit(row, user)):
+        abort(403)
+    db().execute("UPDATE tracks SET pack_id = NULL WHERE id = ?", (row["id"],))
+    db().commit()
+    flash("{0} er taget ud af pakken. Nummeret ligger stadig i {1}."
+          .format(row["title"], SECTIONS[row["section"]]))
+    return redirect(url_for("pack_view", pack_id=pack_id))
+
+
+@app.route("/pakke/<pack_id>/slet", methods=["GET", "POST"])
+@login_required
+def pack_delete(pack_id):
+    pack = pack_editable_or_403(pack_id)
+    rows = db().execute(
+        TRACK_SELECT + " WHERE t.pack_id = ? ORDER BY t.audio_name COLLATE NOCASE",
+        (pack_id,)).fetchall()
+
+    if request.method == "GET":
+        return render_template("pakke_slet.html", pack=pack, tracks=rows)
+
+    # Bekraeftelsen skal staa i formularen. En POST uden den - fx fra et
+    # gammelt bogmaerke eller en fejlklikket knap - sletter ikke noget.
+    if request.form.get("bekraeft") != pack_id:
+        return redirect(url_for("pack_delete", pack_id=pack_id))
+
+    # Sporene foerst og eksplicit. ON DELETE SET NULL goer det samme,
+    # men kun naar foreign_keys er slaaet til paa forbindelsen.
+    db().execute("UPDATE tracks SET pack_id = NULL WHERE pack_id = ?", (pack_id,))
+    db().execute("DELETE FROM packs WHERE id = ?", (pack_id,))
+    db().commit()
+    drop_cover(pack["cover_file"])
+
+    if not rows:
+        flash("Pakken {0} er slettet. Den var tom.".format(pack["name"]))
+    elif len(rows) == 1:
+        flash("Pakken {0} er slettet. Nummeret i den ligger stadig i listen, "
+              "bare uden pakke.".format(pack["name"]))
+    else:
+        flash("Pakken {0} er slettet. Alle {1} numre ligger stadig i listerne, "
+              "bare uden pakke.".format(pack["name"], len(rows)))
+    return redirect(url_for("packs"))
 
 
 @app.errorhandler(413)
@@ -1163,10 +1743,11 @@ def cli_import(argv):
 
         conn.execute(
             "INSERT INTO tracks (id, section, title, bpm, mkey, note, audio_file,"
-            " audio_name, audio_size, cover_file, uploader_id, created_at)"
-            " VALUES (?,?,?,'','','',?,?,?,?,?,?)",
+            " audio_name, audio_size, cover_file, uploader_id, created_at, duration)"
+            " VALUES (?,?,?,'','','',?,?,?,?,?,?,?)",
             (track_id, section, title[:120], audio_file, name, size,
-             cover_file, owner_id, stamp.isoformat(timespec="seconds")),
+             cover_file, owner_id, stamp.isoformat(timespec="seconds"),
+             audio_duration(MEDIA / audio_file) or -1),
         )
         seen.add((name, size))
         added += 1

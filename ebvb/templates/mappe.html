@@ -25,6 +25,8 @@
         data-check="{{ url_for('folder_check') }}"
         data-chunk="{{ url_for('folder_chunk') }}"
         data-review="{{ url_for('folder_review', batch='BATCH') }}"
+        data-pack="{{ url_for('pack_view', pack_id='PACK') }}"
+        data-pack-add="{{ url_for('pack_add', pack_id='PACK') }}"
         data-chunk-bytes="{{ chunk_bytes }}"
         data-max-bytes="{{ max_bytes }}"
         data-max-label="{{ human_size(max_bytes) }}">
@@ -56,6 +58,22 @@
       <h2 class="found__title" id="found-title">Fundet</h2>
       <p class="found__sum" id="found-sum" role="status"></p>
     </div>
+
+    <fieldset class="packopt" id="pack-opt">
+      <legend class="field__label">Pakke</legend>
+      <label class="pick__opt pick__opt--alone">
+        <input type="checkbox" id="pack-on" checked>
+        <span>Saml numrene i en pakke</span>
+      </label>
+      <label class="field packopt__name">
+        <span class="sr">Pakkens navn</span>
+        <input id="pack-name" maxlength="{{ pack_name_max }}" autocomplete="off">
+      </label>
+      <p class="field__hint" id="pack-hint">
+        Forslaget er mappens navn. Numre du overskriver, bliver i den pakke
+        de allerede ligger i.
+      </p>
+    </fieldset>
 
     <div class="ask" id="dup-box" hidden>
       <p class="ask__text" id="dup-text"></p>
@@ -95,6 +113,7 @@
       <div class="tool__acts">
         <button type="button" class="ghost" id="stop" hidden>Stop</button>
         <button type="button" class="ghost" id="retry" hidden>Prøv de fejlede igen</button>
+        <a class="ghost" id="pack-link" href="#" hidden>Åbn pakken</a>
         <a class="solid" id="review-link" href="#" hidden>Gennemse numrene</a>
         <button type="button" class="solid" id="start" disabled>Læg op</button>
       </div>

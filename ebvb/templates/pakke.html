@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% import "_bits.html" as bits with context %}
+{% block title %}{{ pack.name }} — EBVB{% endblock %}
+
+{% block body %}
+<div class="crumb">
+  <a class="ghost" href="{{ url_for('packs') }}">Alle pakker</a>
+</div>
+
+<header class="who-card pack-card glass">
+  {{ bits.pack_art(pack, 'pack-art--xl') }}
+
+  <div class="who-card__body">
+    <p class="pack-card__kind">Pakke</p>
+    <h1 class="who-card__name">{{ pack.name }}</h1>
+
+    <p class="who-card__tally">
+      {{ bits.pack_tally(pack) }}
+      <span>Af <a class="row__by" href="{{ url_for('profile', navn=pack.owner) }}">{{ pack.owner }}</a></span>
+      <span>{{ dk_date(pack.created_at) }}</span>
+    </p>
+
+    {% if pack.description %}
+      <p class="who-card__bio">{{ pack.description }}</p>
+    {% endif %}
+
+    {% if can_edit_pack %}
+      <div class="pack-card__acts">
+        <a class="solid" href="{{ url_for('pack_add', pack_id=pack.id) }}">Tilføj numre</a>
+        <button type="button" class="ghost" data-open-sheet="pack-edit">Rediger</button>
+        <a class="ghost ghost--warn" href="{{ url_for('pack_delete', pack_id=pack.id) }}">Slet pakke</a>
+      </div>
+    {% endif %}
+  </div>
+</header>
+
+<main class="stage" id="indhold">
+  {% include "_plate.html" %}
+
+  <div class="lists glass">
+    <section class="list" data-section="pakke" aria-label="Numre i {{ pack.name }}">
+      {% if tracks %}
+        <p class="list__head">
+          <span>Nr.</span><span>Titel</span><span>Detaljer</span>
+        </p>
+        {% for t in tracks %}
+          {{ bits.row(t, loop.index,
+                      drop_url=url_for('pack_remove', pack_id=pack.id)
+                               if can_edit_pack or t.uploader_id == user.id or user.is_admin
+                               else None) }}
+        {% endfor %}
+      {% else %}
+        <div class="empty">
+          <p class="empty__line">Pakken er tom.</p>
+          {% if can_edit_pack %}
+            <a class="solid" href="{{ url_for('pack_add', pack_id=pack.id) }}">Tilføj numre</a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
+  </div>
+</main>
+
+{% include "_deck.html" %}
+
+{% if can_edit_pack %}
+<dialog class="sheet" id="pack-edit">
+  <form method="post" action="{{ url_for('pack_edit', pack_id=pack.id) }}"
+        enctype="multipart/form-data" class="sheet__form">
+    <h2 class="sheet__title">Rediger pakke</h2>
+
+    <label class="field">
+      <span class="field__label">Navn</span>
+      <input name="name" maxlength="{{ name_max }}" required value="{{ pack.name }}">
+    </label>
+
+    <label class="field">
+      <span class="field__label">Beskrivelse</span>
+      <textarea name="description" maxlength="{{ text_max }}" rows="3"
+                placeholder="Kan udelades">{{ pack.description }}</textarea>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Cover</span>
+      <input type="file" name="cover" accept="image/*">
+      <span class="field__hint">
+        {% if pack.cover_file %}Vælg et nyt for at skifte det ud.
+        {% else %}Uden et bruges coveret fra det første nummer der har ét.{% endif %}
+        Op til 12 MB.
+      </span>
+    </label>
+
+    {% if pack.cover_file %}
+      <label class="pick__opt pick__opt--alone">
+        <input type="checkbox" name="fjern_cover" value="1">
+        <span>Fjern pakkens eget cover</span>
+      </label>
+    {% endif %}
+
+    <div class="sheet__acts">
+      <button type="button" class="ghost" data-close-sheet>Fortryd</button>
+      <button type="submit" class="solid">Gem</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+{% endblock %}

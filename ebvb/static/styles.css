@@ -1361,6 +1361,245 @@ body.is-tool { padding-bottom: 64px; }
 .solid:disabled { opacity: 0.45; cursor: not-allowed; filter: none; box-shadow: none; }
 
 /* ============================================================
+   Pakker
+
+   En pakke er et omslag om nogle spor. Oversigten er en hylde med
+   omslag i samme runde flise-form som coverne i listen; en pakke
+   aabnet er profilens kort med sporene i det kendte afspillerlayout.
+   ============================================================ */
+
+.shelf {
+  max-width: var(--shelf);
+  margin: clamp(14px, 2.4vw, 26px) auto 0;
+  padding: 0 var(--gut);
+}
+
+.shelf__lead {
+  max-width: 66ch;
+  margin-bottom: 20px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+
+.packs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: clamp(14px, 2vw, 22px);
+}
+
+.pack {
+  position: relative;
+  border-radius: var(--r-panel);
+  padding: 12px 12px 16px;
+  transition: border-color var(--t-move) ease, transform var(--t-press) ease;
+}
+.pack:hover { border-color: var(--red-line); }
+.pack:active { transform: scale(0.992); }
+
+.pack__link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+/* Hele kortet er klikbart, men ejerens navn er sit eget link ovenpaa. */
+.pack__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.pack__link:focus-visible { outline: 0; }
+.pack:has(.pack__link:focus-visible) { outline: 2px solid var(--red); outline-offset: 3px; }
+
+.pack__name {
+  display: block;
+  margin: 14px 4px 0;
+  font-family: var(--display);
+  font-size: 40px;
+  line-height: 0.8;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.pack__tally,
+.pack__by {
+  margin: 10px 4px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.pack__by { margin-top: 6px; }
+.pack__tally b,
+.who-card__tally b { color: var(--ink); font-weight: 700; }
+
+.pack-art {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid var(--hair);
+  background:
+    radial-gradient(120% 100% at 20% 0%, var(--red-soft), transparent 60%),
+    var(--glass-2);
+}
+.pack-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pack-art__blank {
+  font-family: var(--display);
+  font-size: 64px;
+  line-height: 0.7;
+  letter-spacing: 0.08em;
+  color: var(--hair);
+}
+
+.pack-art--xl {
+  flex: none;
+  width: clamp(120px, 18vw, 170px);
+  border-radius: 22px;
+}
+.pack-art--xl .pack-art__blank { font-size: clamp(54px, 8vw, 74px); }
+
+.pack-card__kind {
+  margin-bottom: 8px;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--red);
+}
+
+.pack-card__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+.who-card .pack-card__acts .ghost { margin-top: 0; }
+
+.empty--panel {
+  max-width: var(--shelf);
+  border-radius: var(--r-panel);
+  padding: clamp(28px, 5vw, 48px);
+}
+
+/* Fjern fra pakken. Ligger over row__hit::after, ligesom navnet. */
+.row__drop {
+  position: relative;
+  z-index: 2;
+  margin: 0;
+}
+.ghost--tiny {
+  padding: 6px 11px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+}
+
+/* Knapper der sletter noget. Roed hele tiden, ikke kun ved hover. */
+.solid--warn {
+  background: linear-gradient(180deg, var(--red), color-mix(in oklab, var(--red) 70%, black));
+}
+.ghost--warn { border-color: var(--red-line); }
+
+/* ---------- Slet: hvad der bliver liggende ---------- */
+
+.tool--narrow { max-width: 760px; }
+.tool__title + .ask { margin-top: 24px; }
+
+.ask--stack { flex-direction: column; align-items: stretch; gap: 10px; }
+.ask--stack .ask__text { flex: none; }
+
+.keep {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 4px 16px;
+  max-height: 340px;
+  overflow: auto;
+  border-radius: var(--r-card);
+  border: 1px solid var(--hair);
+  background: var(--glass-2);
+}
+.keep__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--hair-soft);
+  font-size: 12.5px;
+}
+.keep__row:last-child { border-bottom: 0; }
+.keep__title { text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* ---------- Tilfoej numre ---------- */
+
+.pick-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+.field--inline { margin: 0; }
+.field--inline input { width: min(300px, 70vw); padding: 8px 14px; border-radius: var(--r-pill); }
+.pick-bar .dup__pick { padding: 8px 14px; height: 100%; }
+
+.grid__group td {
+  background: var(--red-soft);
+  border-bottom: 1px solid var(--red-line);
+  padding: 8px 12px;
+}
+.grid__group td > span {
+  margin-right: 12px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.grid label.grid__name { cursor: pointer; }
+/* Hver mappe-upload er sin egen tbody. En streg imellem, saa et
+   loesrevet spor lige efter en gruppe ikke ligner en del af den. */
+.grid tbody + tbody tr:first-child td { border-top: 1px solid var(--hair); }
+.grid tr[hidden] { display: none; }
+
+.tool__note.is-warn { color: var(--red); }
+
+/* ---------- Pakke i mappe-uploaden ---------- */
+
+.packopt {
+  margin: 0 0 18px;
+  padding: 14px 16px 12px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--hair);
+  background: var(--glass-2);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 18px;
+}
+.packopt legend { float: left; grid-column: 1 / -1; margin-bottom: 0; }
+.packopt .pick__opt--alone { margin: 0; }
+.packopt__name { margin: 0; }
+.packopt .field__hint { grid-column: 1 / -1; margin: 0; }
+.packopt.is-off .packopt__name { opacity: 0.45; }
+
+@media (max-width: 640px) {
+  .packopt { grid-template-columns: 1fr; }
+}
+
+/* Paa en telefon: to omslag i bredden, ikke et der fylder hele skaermen. */
+@media (max-width: 520px) {
+  .packs { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .pack { padding: 8px 8px 12px; border-radius: var(--r-card); }
+  .pack-art { border-radius: 14px; }
+  .pack__name { font-size: 30px; margin-top: 10px; }
+  .pack__tally, .pack__by { font-size: 9.5px; gap: 2px 8px; }
+}
+
+/* ============================================================
    Bevaegelse
 
    Appen er udstyr, ikke en hjemmeside. Derfor decelleration og
