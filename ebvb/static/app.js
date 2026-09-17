@@ -336,6 +336,15 @@
     btn.addEventListener("click", function () { sheet.close(); });
   });
 
+  /* Mappe-siden skal aabne i den sektion der er valgt i arket. */
+  var folderLink = document.getElementById("folder-link");
+  if (folderLink) {
+    folderLink.addEventListener("click", function () {
+      var picked = sheet.querySelector(".pick input:checked");
+      if (picked) folderLink.search = "?sektion=" + encodeURIComponent(picked.value);
+    });
+  }
+
   /* Filnavnet er et fint forslag til titlen. */
   var audioInput = document.getElementById("audio-input");
   var titleInput = document.getElementById("title-input");

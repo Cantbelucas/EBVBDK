@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Gennemse — EBVB{% endblock %}
+{% block bodyclass %}is-tool{% endblock %}
+
+{% set missing = rows | selectattr('bpm', 'equalto', '') | list | length
+               + rows | rejectattr('bpm', 'equalto', '') | selectattr('mkey', 'equalto', '') | list | length %}
+{% set unread = rows | selectattr('parsed', 'in', ['delvis', 'ingen']) | list | length %}
+
+{% block body %}
+<div class="crumb">
+  {% if mode == 'batch' %}
+    <a class="ghost" href="{{ url_for('folder_page', sektion=rows[0].section) }}">Læg en mappe mere op</a>
+  {% endif %}
+  <a class="ghost" href="{{ url_for('section', slug=rows[0].section if rows else 'beats') }}">Til listen</a>
+</div>
+
+<main class="tool glass" id="indhold">
+  <h1 class="tool__title">{% if mode == 'batch' %}Uploaden{% else %}Gennemse{% endif %}</h1>
+
+  {% if not rows %}
+    <p class="tool__lead">
+      Alt du har lagt op er gennemset. Numre hvor titel, BPM eller toneart
+      ikke kunne læses ud af filnavnet, dukker op her.
+    </p>
+  {% else %}
+    <p class="tool__lead">
+      {% if mode == 'batch' %}
+        Alt der kom med uploaden. Ret titel, BPM og toneart direkte i
+        tabellen, og gem det hele på én gang.
+      {% else %}
+        Numre du har lagt op, hvor filnavnet ikke kunne læses helt. De
+        forsvinder herfra, når du har gemt.
+      {% endif %}
+    </p>
+
+    <form method="post" class="review" id="review">
+      <div class="found__head">
+        <p class="found__sum" id="review-sum" role="status"
+           data-total="{{ rows|length }}">
+          <b>{{ rows|length }}</b> {{ 'nummer' if rows|length == 1 else 'numre' }}
+          {%- if unread %} · <b class="is-warn">{{ unread }}</b> kunne ikke læses helt{% endif %}
+          {%- if missing %} · <b class="is-warn" data-missing>{{ missing }}</b> mangler BPM eller toneart{% endif %}
+        </p>
+        <label class="pick__opt">
+          <input type="checkbox" id="only-missing">
+          <span>Vis kun dem der mangler noget</span>
+        </label>
+      </div>
+
+      <div class="scroll">
+        <table class="grid grid--edit">
+          <thead>
+            <tr>
+              <th>Fil</th>
+              <th>Titel</th>
+              <th class="grid__narrow">BPM</th>
+              <th class="grid__narrow">Toneart</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in rows %}
+              {% set lacks = not t.bpm or not t.mkey %}
+              {% set flagged = t.parsed in ('delvis', 'ingen') %}
+              <tr data-row
+                  class="{% if lacks %}is-missing{% endif %}{% if flagged %} is-flagged{% endif %}">
+                <td class="grid__file">
+                  <input type="hidden" name="id" value="{{ t.id }}">
+                  <span class="grid__name">{{ t.audio_name }}</span>
+                  <span class="grid__dir">{{ sections[t.section] }} · {{ human_size(t.audio_size) }}</span>
+                </td>
+                <td>
+                  <input class="cell" name="title_{{ t.id }}" value="{{ t.title }}"
+                         maxlength="120" required aria-label="Titel for {{ t.audio_name }}">
+                </td>
+                <td class="grid__narrow">
+                  <input class="cell{% if not t.bpm %} is-empty{% endif %}" name="bpm_{{ t.id }}"
+                         value="{{ t.bpm }}" maxlength="8" inputmode="decimal"
+                         placeholder="—" aria-label="BPM for {{ t.audio_name }}">
+                </td>
+                <td class="grid__narrow">
+                  <input class="cell{% if not t.mkey %} is-empty{% endif %}" name="mkey_{{ t.id }}"
+                         value="{{ t.mkey }}" maxlength="12"
+                         placeholder="—" aria-label="Toneart for {{ t.audio_name }}">
+                </td>
+                <td>
+                  {% if t.parsed == 'ingen' %}
+                    <span class="badge badge--warn">Kunne ikke læses</span>
+                  {% elif t.parsed == 'delvis' %}
+                    <span class="badge badge--warn">Delvist læst</span>
+                  {% elif t.parsed == 'rettet' %}
+                    <span class="badge">Gennemset</span>
+                  {% elif t.parsed == 'fuld' %}
+                    <span class="badge badge--ok">Læst</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="tool__bar tool__bar--sticky">
+        <p class="tool__note" id="dirty" role="status"></p>
+        <div class="tool__acts">
+          <button type="submit" class="solid">Gem alle</button>
+        </div>
+      </div>
+    </form>
+  {% endif %}
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('mappe.js') }}" defer></script>
+{% endblock %}

@@ -33,6 +33,11 @@
 
     {% if is_me %}
       <button type="button" class="ghost" data-open-profile>Rediger profil</button>
+      {% if pending %}
+        <a class="ghost ghost--flag" href="{{ url_for('review_pending') }}">
+          {{ pending }} {{ 'nummer' if pending == 1 else 'numre' }} mangler at blive gennemset
+        </a>
+      {% endif %}
     {% endif %}
   </div>
 </header>

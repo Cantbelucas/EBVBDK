@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Læg en mappe op — EBVB{% endblock %}
+{% block bodyclass %}is-tool{% endblock %}
+
+{% block body %}
+<div class="crumb">
+  <a class="ghost" href="{{ url_for('section', slug=active) }}">Tilbage til listen</a>
+</div>
+
+<main class="tool glass" id="indhold">
+  <h1 class="tool__title">Læg en mappe op</h1>
+  <p class="tool__lead">
+    Vælg en mappe. Alle mp3- og wav-filer i den bliver fundet, også i
+    undermapper, og titel, BPM og toneart læses ud af filnavnet. Du ser
+    listen og kan fravælge numre, før noget bliver sendt.
+  </p>
+
+  <noscript>
+    <p class="notice">
+      Mappe-upload kræver JavaScript. Enkeltfiler kan stadig lægges op fra listen.
+    </p>
+  </noscript>
+
+  <form class="folder" id="folder" hidden
+        data-check="{{ url_for('folder_check') }}"
+        data-chunk="{{ url_for('folder_chunk') }}"
+        data-review="{{ url_for('folder_review', batch='BATCH') }}"
+        data-chunk-bytes="{{ chunk_bytes }}"
+        data-max-bytes="{{ max_bytes }}"
+        data-max-label="{{ human_size(max_bytes) }}">
+
+    <fieldset class="pick">
+      <legend class="field__label">Hvor</legend>
+      {% for slug, label in sections.items() %}
+        <label class="pick__opt">
+          <input type="radio" name="section" value="{{ slug }}"
+                 data-label="{{ label }}"
+                 {% if slug == active %}checked{% endif %}>
+          <span>{{ label }}</span>
+        </label>
+      {% endfor %}
+    </fieldset>
+
+    <label class="field">
+      <span class="field__label">Mappe</span>
+      <input type="file" id="folder-input" webkitdirectory directory multiple>
+      <span class="field__hint">
+        Artist bliver <b>{{ user.name }}</b> på alle numrene. Filer over
+        {{ human_size(max_bytes) }} kan ikke lægges op.
+      </span>
+    </label>
+  </form>
+
+  <section class="found" id="found" hidden aria-labelledby="found-title">
+    <div class="found__head">
+      <h2 class="found__title" id="found-title">Fundet</h2>
+      <p class="found__sum" id="found-sum" role="status"></p>
+    </div>
+
+    <div class="ask" id="dup-box" hidden>
+      <p class="ask__text" id="dup-text"></p>
+      <div class="ask__acts">
+        <button type="button" class="ghost" data-dup="skip">Spring dem over</button>
+        <button type="button" class="ghost" data-dup="overwrite">Overskriv dem</button>
+      </div>
+      <p class="ask__done" id="dup-done" hidden></p>
+    </div>
+
+    <div class="progress" id="progress" hidden>
+      <div class="meter meter--big" aria-hidden="true"><span class="meter__fill" id="progress-fill"></span></div>
+      <p class="progress__text" id="progress-text" role="status"></p>
+    </div>
+
+    <div class="scroll">
+      <table class="grid" id="found-table">
+        <thead>
+          <tr>
+            <th class="grid__check">
+              <input type="checkbox" id="check-all" checked aria-label="Vælg alle">
+            </th>
+            <th>Fil</th>
+            <th>Titel</th>
+            <th>BPM</th>
+            <th>Toneart</th>
+            <th class="grid__num">Størrelse</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="tool__bar">
+      <p class="tool__note" id="done-text" role="status"></p>
+      <div class="tool__acts">
+        <button type="button" class="ghost" id="stop" hidden>Stop</button>
+        <button type="button" class="ghost" id="retry" hidden>Prøv de fejlede igen</button>
+        <a class="solid" id="review-link" href="#" hidden>Gennemse numrene</a>
+        <button type="button" class="solid" id="start" disabled>Læg op</button>
+      </div>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('mappe.js') }}" defer></script>
+{% endblock %}

@@ -30,6 +30,14 @@ portfolioen, genbygger app-imaget og starter containeren.
 2. Browseren og Cloudflare cacher `styles.css` og `app.js`. Appen sætter
    nu `?v=<hash>` bag dem, så en ny udgave får en ny URL. Ser du alligevel
    den gamle side, er det en cache fra før den rettelse — Ctrl+F5.
+3. **Mappe-upload kræver `connect-src 'self'` i CSP'en.** Den sender
+   filerne med `XMLHttpRequest`, og CSP'en i `musik.conf` har ingen
+   `connect-src`. Så falder den tilbage til `default-src 'none'`, og
+   browseren blokerer uploaden: listen over fundne filer bliver aldrig
+   vist, og i browserens konsol står der `Refused to connect`. Serveren
+   ser ingenting, så der er intet i dens log. Ret linjen i din
+   `musik.conf`, så den svarer til `nginx.ebvb.conf.example`, og
+   genindlæs nginx **før** du deployer den version af appen.
 
 Resten af dokumentet er selve omlægningen fra Nextcloud, som er
 historik nu, men står tilbage som opskrift hvis noget skal gøres om.
@@ -287,6 +295,11 @@ igennem, er der ikke mere at gøre. Bliver den afvist, har du tre veje:
 
 Jeg vil anbefale at teste først og først vælge bagefter. Det kan være at
 ingen af jeres filer er store nok til at det er et problem.
+
+**Mappe-upload er ikke ramt af det her.** Den deler hver fil op i bidder
+på 32 MB og sender dem én ad gangen, så en 300 MB wav kommer igennem
+Cloudflare uden at noget skal ændres. Grænsen gælder kun "Læg op"-arket
+med én fil ad gangen.
 
 ---
 

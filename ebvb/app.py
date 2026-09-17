@@ -12,6 +12,7 @@ ligger i en liste sammen med hvem der lagde det op. Ikke mapper.
     python app.py users                vis brugere
     python app.py import <mappe> <beats|music> <bruger>
                                        hent en mappe med lydfiler ind
+    python app.py filnavn <navn> ...   vis hvad der laeses ud af et filnavn
     python app.py                      start udviklingsserver paa :8090
 
 I drift koeres den med gunicorn bag nginx. Se README.md.
@@ -34,7 +35,7 @@ from hashlib import sha1
 from pathlib import Path
 
 from flask import (
-    Flask, abort, flash, g, redirect, render_template, request,
+    Flask, abort, flash, g, jsonify, redirect, render_template, request,
     send_file, session, url_for,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -48,10 +49,14 @@ DATA = Path(os.environ.get("EBVB_DATA", ROOT / "data"))
 MEDIA = DATA / "media"
 COVERS = DATA / "covers"
 AVATARS = DATA / "avatars"
+PARTS = DATA / "tmp"                   # halve filer fra mappe-upload
 DB_PATH = DATA / "ebvb.db"
 
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".aif", ".aiff"}
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
+
+# Mappe-upload tager kun de to. Alt andet i mappen ignoreres.
+FOLDER_EXT = {".mp3", ".wav"}
 
 # Slug -> label. Raekkefoelgen her er raekkefoelgen i fanerne.
 SECTIONS = {"beats": "Beats", "music": "Music"}
@@ -59,11 +64,24 @@ SECTIONS = {"beats": "Beats", "music": "Music"}
 MAX_BYTES = 512 * 1024 * 1024          # skal matche client_max_body_size i nginx
 MAX_COVER_BYTES = 12 * 1024 * 1024
 
+# Mappe-upload sender hver fil i bidder af denne stoerrelse. Cloudflare
+# afviser request bodies over 100 MB paa gratis-planen, saa en 300 MB
+# wav i et stykke kommer aldrig igennem. I bidder gaar den, og hverken
+# Cloudflare eller client_max_body_size i nginx skal roeres.
+CHUNK_BYTES = 32 * 1024 * 1024
+PART_MAX_AGE = 24 * 60 * 60            # opgivne halve filer ryddes efter et doegn
+
+HEX32 = re.compile(r"[0-9a-f]{32}")
+
 MONTHS = ("jan", "feb", "mar", "apr", "maj", "jun",
           "jul", "aug", "sep", "okt", "nov", "dec")
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_BYTES
+# Gennemse-tabellen sender fire felter pr. nummer. Flask afviser som
+# standard formularer med over 1000 felter - det er 250 numre.
+app.config["MAX_FORM_PARTS"] = 40_000
+app.config["MAX_FORM_MEMORY_SIZE"] = 8 * 1024 * 1024
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -116,7 +134,9 @@ CREATE TABLE IF NOT EXISTS tracks (
     audio_size  INTEGER NOT NULL,
     cover_file  TEXT NOT NULL DEFAULT '',
     uploader_id INTEGER NOT NULL REFERENCES users(id),
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    batch_id    TEXT NOT NULL DEFAULT '',
+    parsed      TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS tracks_section ON tracks(section, created_at DESC);
@@ -141,9 +161,19 @@ def close_db(_exc):
 # Kolonner der er kommet til efter foerste udgave. CREATE TABLE IF NOT
 # EXISTS roerer ikke en tabel der allerede findes, saa de skal tilfoejes
 # her - ellers gaar en eksisterende database i stykker ved opgradering.
+#
+# tracks.batch_id  hvilken mappe-upload sporet kom med ('' = enkeltfil)
+# tracks.parsed    hvad filnavnet gav:
+#                    ''        lagt op som enkeltfil, ikke laest
+#                    'fuld'    titel, BPM og toneart
+#                    'delvis'  noget, men ikke det hele
+#                    'ingen'   intet - filnavnet er brugt som titel
+#                    'rettet'  var delvis/ingen, og er gennemset siden
 LATER_COLUMNS = (
     ("users", "avatar_file", "TEXT NOT NULL DEFAULT ''"),
     ("users", "bio", "TEXT NOT NULL DEFAULT ''"),
+    ("tracks", "batch_id", "TEXT NOT NULL DEFAULT ''"),
+    ("tracks", "parsed", "TEXT NOT NULL DEFAULT ''"),
 )
 
 
@@ -151,11 +181,19 @@ def migrate(conn):
     for table, column, ddl in LATER_COLUMNS:
         have = {r[1] for r in conn.execute("PRAGMA table_info({0})".format(table))}
         if column not in have:
-            conn.execute("ALTER TABLE {0} ADD COLUMN {1} {2}".format(table, column, ddl))
+            try:
+                conn.execute("ALTER TABLE {0} ADD COLUMN {1} {2}".format(table, column, ddl))
+            except sqlite3.OperationalError as exc:
+                # gunicorn starter to workers samtidig, og begge kan naa
+                # at se kolonnen mangle. Den anden faar saa denne fejl.
+                if "duplicate column" not in str(exc):
+                    raise
+    # Indekset kan foerst laves naar kolonnen findes.
+    conn.execute("CREATE INDEX IF NOT EXISTS tracks_batch ON tracks(batch_id)")
 
 
 def init_storage():
-    for folder in (DATA, MEDIA, COVERS, AVATARS):
+    for folder in (DATA, MEDIA, COVERS, AVATARS, PARTS):
         folder.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA)
@@ -253,6 +291,209 @@ def login_required(view):
         return view(*a, **kw)
     wrapped.__name__ = view.__name__
     return wrapped
+
+
+def api_login_required(view):
+    """Som login_required, men til de ruter JavaScript kalder. Et
+    redirect til /login ville komme tilbage som en HTML-side med status
+    200, og saa ligner et udloebet login en upload der lykkedes."""
+    def wrapped(*a, **kw):
+        if current_user() is None:
+            return json_error(401, "Du er blevet logget ud. Log ind i en ny "
+                                   "fane, og prøv igen herfra.")
+        return view(*a, **kw)
+    wrapped.__name__ = view.__name__
+    return wrapped
+
+
+def json_error(status, message, **extra):
+    body = {"error": message}
+    body.update(extra)
+    return jsonify(body), status
+
+
+def can_edit(track, user):
+    return track["uploader_id"] == user["id"] or bool(user["is_admin"])
+
+
+# --------------------------------------------------------------------
+# Metadata fra filnavn
+#
+# Numrene hedder fx "Midnight Drive 95BPM Fm.wav". Parseren er med vilje
+# tolerant, men den gaetter hellere for lidt end forkert: en toneart der
+# ogsaa kan vaere et ord ("I Am Legend") godtages kun hvis den staar ved
+# siden af BPM'en eller til sidst i navnet. Det der ikke kan laeses,
+# bliver tomt og markeret - intet afvises.
+# --------------------------------------------------------------------
+
+_SEPS = " \t_-–—.,;:|+()[]{}"
+
+_BPM_SUFFIX = re.compile(
+    r"(?<!\d)(?P<v>\d{2,3}(?:[.,]\d{1,2})?)[\s_\-]*bpm(?![a-z])", re.I)
+_BPM_PREFIX = re.compile(
+    r"(?<![a-z])bpm[\s_\-:=]*(?P<v>\d{2,3}(?:[.,]\d{1,2})?)(?!\d)", re.I)
+_BPM_BARE = re.compile(
+    r"(?<![A-Za-z0-9#])(?<!\d[.,])(?P<v>\d{2,3})(?![A-Za-z0-9]|[.,]\d)")
+
+_KEY = re.compile(
+    r"(?<![A-Za-z0-9#♯♭])"
+    r"(?P<note>[A-Ga-g])"
+    r"(?P<acc>[#♯♭]|b|[\s_\-]?(?:sharp|flat))?"
+    r"(?:[\s_\-]?(?P<q>minor|moll|mol|min|major|maj|dur|m))?"
+    r"(?![A-Za-z#♯♭])",
+    re.I)
+
+_MINOR = {"m", "min", "minor", "moll", "mol"}
+_LONG_Q = {"min", "minor", "moll", "mol", "maj", "major", "dur"}
+
+STRONG, MEDIUM, WEAK = 3, 2, 1
+
+
+def _only_seps(text):
+    return all(ch in _SEPS for ch in text)
+
+
+def _key_text(note, acc, q):
+    acc = (acc or "").strip(" _-").lower()
+    sign = "#" if acc in ("#", "♯", "sharp") else "b" if acc in ("b", "♭", "flat") else ""
+    return note.upper() + sign + ("m" if q and q.lower() in _MINOR else "")
+
+
+def _key_strength(m):
+    note, acc, q = m.group("note"), m.group("acc"), m.group("q")
+    if q == "M":
+        return 0                        # "FM" er radio, ikke F-mol
+    if q and q.lower() in _LONG_Q:
+        return STRONG                   # "f minor", "Fmin", "Eb dur"
+    if acc:
+        if note.isupper() or q:
+            return STRONG               # "F#", "Bb", "f#m"
+        return WEAK if acc.strip(" _-") in ("#", "♯") else 0   # "db" er decibel
+    if q:
+        return MEDIUM if note.isupper() else WEAK                    # "Fm" / "fm"
+    return WEAK if note.isupper() else 0                             # "F" / "f"
+
+
+def _number(text):
+    value = float(text.replace(",", "."))
+    return value, ("{0:g}".format(value))
+
+
+def parse_filename(filename, username=""):
+    """Filnavn -> {title, bpm, mkey, parsed}. Se kommentaren ovenfor."""
+    stem = Path(unicodedata.normalize("NFC", filename or "")).stem
+    stem = stem.strip() or "Uden titel"
+
+    # --- BPM ---
+    explicit = []
+    for rx in (_BPM_SUFFIX, _BPM_PREFIX):
+        for m in rx.finditer(stem):
+            value, text = _number(m.group("v"))
+            if 20 <= value <= 400:
+                explicit.append((m.start(), m.end(), text))
+
+    keys = []
+    for m in _KEY.finditer(stem):
+        strength = _key_strength(m)
+        if strength:
+            keys.append((m.start(), m.end(), strength,
+                         _key_text(m.group("note"), m.group("acc"), m.group("q"))))
+
+    bpm = None
+    if explicit:
+        bpm = max(explicit)             # den sidste i navnet
+    else:
+        bare = []
+        for m in _BPM_BARE.finditer(stem):
+            if 50 <= int(m.group("v")) <= 220:
+                bare.append((m.start(), m.end(), str(int(m.group("v")))))
+        if bare:
+            # Et tal ved siden af en toneart er naesten sikkert BPM'en.
+            near = [b for b in bare for k in keys if k[2] >= MEDIUM and (
+                _only_seps(stem[b[1]:k[0]]) if b[1] <= k[0] else _only_seps(stem[k[1]:b[0]]))]
+            bpm = max(near) if near else max(bare)
+
+    # En toneart maa ikke ligge inde i BPM-teksten ("95 BPM" har et B).
+    if bpm:
+        keys = [k for k in keys if k[1] <= bpm[0] or k[0] >= bpm[1]]
+
+    def beside_bpm(k):
+        if not bpm:
+            return False
+        if k[1] <= bpm[0]:
+            return _only_seps(stem[k[1]:bpm[0]])
+        return _only_seps(stem[bpm[1]:k[0]])
+
+    def last_in_name(k):
+        return _only_seps(stem[k[1]:])
+
+    accepted = [k for k in keys
+                if k[2] == STRONG
+                or (k[2] == MEDIUM and (beside_bpm(k) or last_in_name(k)))
+                or (k[2] == WEAK and beside_bpm(k))]
+    key = max(accepted, key=lambda k: (k[2], k[0])) if accepted else None
+
+    if not bpm and not key:
+        return {"title": stem[:120], "bpm": "", "mkey": "", "parsed": "ingen"}
+
+    # --- Titel: det der er tilbage ---
+    spans = sorted(s for s in (bpm, key) if s)
+    rest, at = [], 0
+    for start, end, *_ in spans:
+        rest.append(stem[at:start])
+        rest.append(" ")
+        at = end
+    rest.append(stem[at:])
+    title = _tidy_title("".join(rest))
+
+    # "lucas - Midnight Drive": han lagde det selv op, navnet staar allerede
+    # paa sporet.
+    if username:
+        title = re.sub(r"^\s*" + re.escape(username) + r"\s*[-–—:|]\s*",
+                       "", title, flags=re.I)
+        title = re.sub(r"\s*[-–—:|]\s*" + re.escape(username) + r"\s*$",
+                       "", title, flags=re.I)
+
+    complete = bool(title and bpm and key)
+    return {
+        "title": (title or stem)[:120],
+        "bpm": bpm[2] if bpm else "",
+        "mkey": key[3] if key else "",
+        "parsed": "fuld" if complete else "delvis",
+    }
+
+
+def _tidy_title(text):
+    text = text.replace("_", " ")
+    text = re.sub(r"\(\s*\)|\[\s*\]|\{\s*\}", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    # "Midnight - 95 - Fm - mix" -> "Midnight -  -  - mix" -> "Midnight - mix"
+    text = re.sub(r"(?:\s*[-–—|,;:+]\s*){2,}", " - ", text)
+    text = re.sub(r"(?:\s+\.)+(?=\s|$)", "", text)
+    return text.strip(" \t-–—|,;:+.")
+
+
+def normalize_bpm(text):
+    """Det man skriver i tabellen. '95 bpm' -> '95'. Kan det ikke laeses,
+    bliver det staaende som skrevet - det er hans felt."""
+    text = (text or "").strip()
+    m = re.fullmatch(r"(?:bpm[\s:=]*)?(\d{2,3}(?:[.,]\d{1,2})?)\s*(?:bpm)?", text, re.I)
+    if m:
+        return _number(m.group(1))[1]
+    return text[:8]
+
+
+def normalize_key(text):
+    """'f minor' -> 'Fm', 'bb' -> 'Bb'. Kan det ikke laeses, staar det som skrevet."""
+    text = (text or "").strip()
+    m = _KEY.fullmatch(text)
+    if m and m.group("q") != "M":
+        return _key_text(m.group("note"), m.group("acc"), m.group("q"))
+    return text[:12]
+
+
+def folder_audio(name):
+    return ext_of(name) in FOLDER_EXT and not name.startswith("._")
 
 
 # --------------------------------------------------------------------
@@ -367,6 +608,276 @@ def upload():
     return redirect(url_for("section", slug=slug) + "#" + track_id)
 
 
+# --------------------------------------------------------------------
+# Mappe-upload
+#
+#   GET  /mappe          siden hvor man vaelger en mappe
+#   POST /mappe/tjek     filnavne ind -> hvad der laeses ud af dem, og
+#                        hvilke der findes i forvejen. Ingen filer sendes.
+#   POST /mappe/del      en bid af en fil. Den sidste bid laegger sporet ind.
+#   GET  /mappe/<batch>  tabellen over det der kom med uploaden
+#   GET  /gennemse       alt man selv har lagt op som ikke kunne laeses
+#
+# Filerne sendes en ad gangen og i bidder, se CHUNK_BYTES.
+# --------------------------------------------------------------------
+
+@app.get("/mappe")
+@login_required
+def folder_page():
+    slug = request.args.get("sektion", "beats")
+    if slug not in SECTIONS:
+        slug = "beats"
+    return render_template("mappe.html", active=slug,
+                           chunk_bytes=CHUNK_BYTES, max_bytes=MAX_BYTES)
+
+
+def find_duplicate(slug, name, user):
+    """Et spor i samme sektion med samme filnavn. Findes der flere, er
+    ens eget det der taeller - det er det eneste man kan overskrive."""
+    return db().execute(
+        "SELECT t.*, u.name AS uploader"
+        "  FROM tracks t JOIN users u ON u.id = t.uploader_id"
+        " WHERE t.section = ? AND t.audio_name = ? COLLATE NOCASE"
+        " ORDER BY (t.uploader_id = ?) DESC, t.created_at DESC"
+        " LIMIT 1", (slug, name, user["id"])
+    ).fetchone()
+
+
+def sweep_parts():
+    """Halve filer fra uploads der blev afbrudt og aldrig genoptaget."""
+    cutoff = datetime.now().timestamp() - PART_MAX_AGE
+    for part in PARTS.glob("*.part"):
+        try:
+            if part.stat().st_mtime < cutoff:
+                part.unlink()
+        except OSError:
+            pass
+
+
+@app.post("/mappe/tjek")
+@api_login_required
+def folder_check():
+    user = current_user()
+    data = request.get_json(silent=True) or {}
+    slug = data.get("section")
+    if slug not in SECTIONS:
+        return json_error(400, "Vælg Beats eller Music.")
+    files = data.get("files")
+    if not isinstance(files, list) or not files:
+        return json_error(400, "Der var ingen filer at tjekke.")
+    if len(files) > 5000:
+        return json_error(400, "Over 5000 filer i én mappe. Del den op.")
+
+    init_storage()
+    sweep_parts()
+
+    out = []
+    for item in files:
+        item = item if isinstance(item, dict) else {}
+        name = clean_name(str(item.get("name", "")))
+        if not folder_audio(name):
+            out.append(None)
+            continue
+        meta = parse_filename(name, user["name"])
+        dup = find_duplicate(slug, name, user)
+        meta["duplicate"] = None if dup is None else {
+            "title": dup["title"],
+            "by": dup["uploader"],
+            "own": can_edit(dup, user),
+        }
+        out.append(meta)
+
+    return jsonify({"batch": uuid.uuid4().hex, "files": out})
+
+
+@app.post("/mappe/del")
+@api_login_required
+def folder_chunk():
+    user = current_user()
+    form = request.form
+
+    upload_id = form.get("upload", "")
+    batch = form.get("batch", "")
+    slug = form.get("section", "")
+    name = clean_name(form.get("name", ""))
+    on_dup = form.get("duplicate", "skip")
+    if not HEX32.fullmatch(upload_id) or not HEX32.fullmatch(batch):
+        return json_error(400, "Ugyldig upload.")
+    if slug not in SECTIONS:
+        return json_error(400, "Vælg Beats eller Music.")
+    if not folder_audio(name):
+        return json_error(400, "Kun mp3 og wav kan lægges op fra en mappe.")
+    if on_dup not in ("skip", "overwrite", "keep"):
+        return json_error(400, "Ugyldigt valg for dubletter.")
+    try:
+        size = int(form.get("size", ""))
+        offset = int(form.get("offset", ""))
+    except ValueError:
+        return json_error(400, "Ugyldig størrelse.")
+    if size <= 0:
+        return json_error(400, "Filen er tom.")
+    if size > MAX_BYTES:
+        return json_error(400, "Filen er over {0}.".format(human_size(MAX_BYTES)))
+
+    chunk = request.files.get("part")
+    if chunk is None:
+        return json_error(400, "Der mangler data.")
+
+    init_storage()
+    part = PARTS / "{0}-{1}.part".format(user["id"], upload_id)
+
+    if offset == 0:
+        part.unlink(missing_ok=True)   # en fil der startes forfra
+        # Spring over foer der sendes 300 MB for ingenting. Tjekket
+        # gentages til sidst, hvis nogen har lagt den op imens.
+        dup = find_duplicate(slug, name, user)
+        if dup is not None:
+            if on_dup == "skip":
+                return jsonify({"status": "skipped"})
+            if on_dup == "overwrite" and not can_edit(dup, user):
+                return json_error(403, "{0} har lagt den op. Du kan kun overskrive "
+                                       "dine egne.".format(dup["uploader"]))
+
+    have = part.stat().st_size if part.exists() else 0
+    if offset != have:
+        # Klienten tror den er et andet sted end vi er. Den fortsaetter
+        # derfra i stedet for at starte forfra.
+        return json_error(409, "Ude af trit.", have=have)
+
+    with open(part, "ab") as fh:
+        shutil.copyfileobj(chunk.stream, fh, 1024 * 1024)
+    have = part.stat().st_size
+
+    if have > size:
+        part.unlink(missing_ok=True)
+        return json_error(400, "Der kom flere data end filen er stor.")
+    if have < size:
+        return jsonify({"status": "part", "have": have})
+
+    return finish_folder_file(part, user, slug, batch, name, on_dup)
+
+
+def finish_folder_file(part, user, slug, batch, name, on_dup):
+    size = part.stat().st_size
+    ext = ext_of(name)
+    meta = parse_filename(name, user["name"])
+    dup = find_duplicate(slug, name, user)
+
+    if dup is not None and on_dup == "skip":
+        part.unlink(missing_ok=True)
+        return jsonify({"status": "skipped"})
+
+    if dup is not None and on_dup == "overwrite":
+        if not can_edit(dup, user):
+            part.unlink(missing_ok=True)
+            return json_error(403, "Du kan kun overskrive dine egne.")
+
+        # Lyden skiftes. Det filnavnet ikke kunne give, beholdes fra det
+        # gamle spor - ellers ville en rettet toneart ryge ved en ny version.
+        # Cover, note, dato og id bliver staaende.
+        title = meta["title"] if meta["parsed"] != "ingen" else dup["title"]
+        bpm = meta["bpm"] or dup["bpm"]
+        mkey = meta["mkey"] or dup["mkey"]
+        parsed = "fuld" if bpm and mkey else ("delvis" if bpm or mkey else "ingen")
+
+        audio_file = dup["id"] + ext
+        os.replace(part, MEDIA / audio_file)
+        if dup["audio_file"] != audio_file:
+            try:
+                (MEDIA / dup["audio_file"]).unlink(missing_ok=True)
+            except OSError:
+                app.logger.warning("kunne ikke slette %s", dup["audio_file"])
+
+        db().execute(
+            "UPDATE tracks SET title = ?, bpm = ?, mkey = ?, audio_file = ?,"
+            " audio_name = ?, audio_size = ?, batch_id = ?, parsed = ?"
+            " WHERE id = ?",
+            (title[:120], bpm, mkey, audio_file, name, size, batch, parsed, dup["id"]),
+        )
+        db().commit()
+        return jsonify({"status": "overwritten", "id": dup["id"]})
+
+    track_id = uuid.uuid4().hex
+    audio_file = track_id + ext
+    os.replace(part, MEDIA / audio_file)
+    db().execute(
+        "INSERT INTO tracks (id, section, title, bpm, mkey, note, audio_file,"
+        " audio_name, audio_size, cover_file, uploader_id, created_at,"
+        " batch_id, parsed)"
+        " VALUES (?,?,?,?,?,'',?,?,?,'',?,?,?,?)",
+        (track_id, slug, meta["title"], meta["bpm"], meta["mkey"], audio_file,
+         name, size, user["id"], now(), batch, meta["parsed"]),
+    )
+    db().commit()
+    return jsonify({"status": "added", "id": track_id})
+
+
+def review(where, params, mode, batch=""):
+    """Tabellen hvor titel, BPM og toneart rettes, og gemmes paa en gang."""
+    sql = ("SELECT t.*, u.name AS uploader"
+           "  FROM tracks t JOIN users u ON u.id = t.uploader_id"
+           " WHERE " + where +
+           " ORDER BY t.audio_name COLLATE NOCASE")
+
+    if request.method == "POST":
+        user = current_user()
+        rows = {r["id"]: r for r in db().execute(sql, params)}
+        if mode == "batch" and not rows:
+            abort(404)
+        saved = missing = 0
+        for track_id in request.form.getlist("id"):
+            row = rows.get(track_id)
+            if row is None or not can_edit(row, user):
+                continue
+            title = (request.form.get("title_" + track_id) or "").strip()[:120]
+            bpm = normalize_bpm(request.form.get("bpm_" + track_id))
+            mkey = normalize_key(request.form.get("mkey_" + track_id))
+            parsed = "rettet" if row["parsed"] in ("delvis", "ingen") else row["parsed"]
+            db().execute(
+                "UPDATE tracks SET title = ?, bpm = ?, mkey = ?, parsed = ? WHERE id = ?",
+                (title or row["title"], bpm, mkey, parsed, track_id),
+            )
+            saved += 1
+            missing += not (bpm and mkey)
+        db().commit()
+
+        if not saved:
+            flash("Der var ikke noget at gemme.")
+        elif missing:
+            flash("Gemt. {0} af {1} mangler stadig BPM eller toneart."
+                  .format(missing, saved))
+        elif saved == 1:
+            flash("Gemt. Nummeret har titel, BPM og toneart.")
+        else:
+            flash("Gemt. Alle {0} har titel, BPM og toneart.".format(saved))
+        return redirect(request.path)
+
+    rows = db().execute(sql, params).fetchall()
+    if mode == "batch" and not rows:
+        abort(404)
+    return render_template("gennemse.html", rows=rows, mode=mode, batch=batch)
+
+
+@app.route("/mappe/<batch>", methods=["GET", "POST"])
+@login_required
+def folder_review(batch):
+    if not HEX32.fullmatch(batch):
+        abort(404)
+    user = current_user()
+    where, params = "t.batch_id = ?", [batch]
+    if not user["is_admin"]:
+        where += " AND t.uploader_id = ?"
+        params.append(user["id"])
+    return review(where, params, "batch", batch)
+
+
+@app.route("/gennemse", methods=["GET", "POST"])
+@login_required
+def review_pending():
+    return review("t.uploader_id = ? AND t.parsed IN ('delvis', 'ingen')",
+                  [current_user()["id"]], "pending")
+
+
 def track_or_404(track_id):
     row = db().execute(
         "SELECT t.*, u.name AS uploader"
@@ -451,8 +962,10 @@ def profile(navn):
         abort(404)
     rows = tracks_by(who["id"])
     counts = {key: sum(1 for r in rows if r["section"] == key) for key in SECTIONS}
+    pending = sum(1 for r in rows if r["parsed"] in ("delvis", "ingen"))
     return render_template("profil.html", who=who, tracks=rows, counts=counts,
-                           total=sum(r["audio_size"] for r in rows))
+                           total=sum(r["audio_size"] for r in rows),
+                           pending=pending)
 
 
 @app.get("/avatar/<navn>")
@@ -511,6 +1024,8 @@ def profile_edit():
 
 @app.errorhandler(413)
 def too_large(_e):
+    if request.path.startswith("/mappe/"):
+        return json_error(413, "Serveren afviste bidden som for stor.")
     flash("Filen er for stor. Graensen er {0}.".format(human_size(MAX_BYTES)))
     return redirect(url_for("index"))
 
@@ -663,6 +1178,16 @@ def cli_import(argv):
         "PROEVEKOERSEL: " if dry else "", added, SECTIONS[section], skipped))
 
 
+def cli_filename(argv):
+    """Til at se hvorfor et filnavn blev laest som det blev."""
+    if not argv:
+        sys.exit('Brug: python app.py filnavn "Midnight Drive 95BPM Fm.wav" ...')
+    for name in argv:
+        r = parse_filename(name)
+        print("{0}\n  titel {1!r}  bpm {2!r}  toneart {3!r}  ({4})".format(
+            name, r["title"], r["bpm"], r["mkey"], r["parsed"]))
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     command = args[0] if args else ""
@@ -678,6 +1203,8 @@ if __name__ == "__main__":
         cli_users()
     elif command == "import":
         cli_import(args[1:])
+    elif command == "filnavn":
+        cli_filename(args[1:])
     else:
         init_storage()
         app.secret_key = secret_key()

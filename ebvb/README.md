@@ -10,14 +10,18 @@ templates/                base, login, forsiden, profil
   _bits.html              makroer: en raekke, et ansigt
   _plate.html             detaljepanelet
   _deck.html              afspilningsbaren
+  mappe.html              læg en hel mappe op
+  gennemse.html           ret titel, BPM og toneart på mange numre
 static/styles.css         al styling
 static/app.js             faner, afspiller, upload-ark
+static/mappe.js           mappe-upload og gennemse-tabellen
 static/theme.js           sætter lyst/mørkt før siden tegnes
 data/                     ← databasen og filerne. Skal ikke i git.
   ebvb.db
   media/                  lydfilerne
   covers/                 artwork
   avatars/                profilbilleder
+  tmp/                    halve filer fra en mappe-upload i gang
   secret_key              session-nøglen
 ```
 
@@ -110,10 +114,99 @@ tabel der findes i forvejen. `migrate()` tilføjer dem ved opstart hvis de
 mangler, så et deploy oven på en kørende database ikke går i stykker.
 Kommandoen kan køres igen uden at duplikere noget.
 
-## Hent en hel mappe ind
+## Læg en mappe op
+
+I "Læg op"-arket er der et link: **Læg mappen op**. Det er til når man
+har en mappe med numre på computeren og ikke vil lægge dem op én ad
+gangen. Kun desktop — det bruger browserens mappe-vælger.
+
+1. **Vælg en mappe.** Alle `.mp3` og `.wav` i den findes, også i
+   undermapper. Alt andet ignoreres, også macOS' `._`-filer.
+2. **Listen.** Før noget sendes, ser du hvad der blev fundet, og hvad der
+   blev læst ud af filnavnene. Fjern fluebenet ved det der ikke skal med.
+3. **Dubletter.** Findes et nummer med samme filnavn allerede i
+   sektionen, bliver du spurgt om de skal overskrives eller springes
+   over, og "Læg op" er låst til du har svaret. Valget kan ændres pr.
+   nummer bagefter. Et nummer en anden har lagt op kan ikke overskrives,
+   kun springes over eller lægges op ved siden af. Admin kan overskrive.
+4. **Upload.** Filerne sendes én ad gangen med fremdrift pr. fil og
+   samlet. Luk ikke fanen. **Stop** afbryder, og **Prøv igen** fortsætter
+   hvor den slap — det der allerede er nået frem, sendes ikke igen.
+5. **Gennemse.** Bagefter kommer du til en tabel over alt fra uploaden,
+   hvor titel, BPM og toneart kan rettes direkte og gemmes på én gang.
+
+Uploaderens brugernavn er artist på alle numrene — det er det navn der
+står som "Lagt op af". Der er ikke et separat artist-felt.
+
+**Overskriv** skifter lyden ud og beholder sporets cover, note, dato og
+plads i listen. Titel, BPM og toneart tages fra det nye filnavn, men kan
+det ikke læse fx tonearten, beholdes den gamle — så en toneart du har
+rettet i hånden, ryger ikke ved en ny version.
+
+### Hvad der læses ud af filnavnet
+
+```
+Midnight Drive 95BPM Fm.wav              Midnight Drive · 95 · Fm
+midnight_drive_95_F#m.wav                midnight drive · 95 · F#m
+Midnight Drive - 95 bpm - F minor.mp3    Midnight Drive · 95 · Fm
+Deep House 124 A minor (Final).wav       Deep House (Final) · 124 · Am
+BPM 140 - Keys - Cm.wav                  Keys · 140 · Cm
+lucas - Night Call 86 Ebmin.wav          Night Call · 86 · Ebm
+```
+
+- **BPM** med eller uden `BPM` efter (eller før): `95`, `95BPM`,
+  `95 bpm`, `bpm 95`, `95.5bpm`. Et tal uden `BPM` skal ligge mellem 50
+  og 220 for at tælle.
+- **Toneart**: `Fm`, `F minor`, `F Minor`, `Fmin`, `F#m`, `Bbm`,
+  `Eb maj`, og også `F mol`, `F moll` og `F dur`. Det gemmes kort:
+  `Fm`, `F#m`, `Bb`.
+- **Titlen** er det der er tilbage. Står uploaderens navn forrest
+  (`lucas - …`), fjernes det.
+
+Parseren gætter hellere for lidt end forkert. En toneart der også kan
+være et ord — `Am` i "I Am Legend", et enkelt `A` — tæller kun hvis den
+står lige ved siden af BPM'en eller sidst i navnet.
+
+**Filer der ikke kan læses, bliver ikke afvist.** De lægges op med
+filnavnet som titel og tomme felter og bliver markeret. Delvist læste
+(fx BPM men ingen toneart) markeres også. Du finder dem igen på din
+profil — **N numre mangler at blive gennemset** fører til `/gennemse` —
+og de forsvinder derfra, når du har gemt tabellen.
+
+Vil du se hvorfor et filnavn blev læst som det blev:
+
+```bash
+python app.py filnavn "Midnight Drive 95BPM Fm.wav" "I Am Legend.wav"
+```
+
+### Store filer
+
+Hver fil deles i bidder på 32 MB (`CHUNK_BYTES`). Det gør at en 300 MB
+wav kommer igennem Cloudflares grænse på 100 MB pr. forespørgsel, og at
+`client_max_body_size` i nginx **ikke** skal hæves. Grænsen pr. fil er
+stadig `MAX_BYTES` (512 MB).
+
+Bidderne skrives til `data/tmp/` og flyttes ind i `data/media/` når den
+sidste er nået frem. En upload der aldrig bliver gjort færdig, ryddes
+efter et døgn.
+
+**CSP'en skal have `connect-src 'self'`**, ellers blokerer browseren
+uploaden. Se punkt 3 øverst i [DEPLOY.md](DEPLOY.md).
+
+### Databasen
+
+`tracks` har fået to kolonner, som `migrate()` tilføjer ved opstart:
+
+- `batch_id` — hvilken mappe-upload sporet kom med. Tom for enkeltfiler.
+- `parsed` — hvad filnavnet gav: `fuld`, `delvis`, `ingen`, eller
+  `rettet` når et delvist eller ulæst nummer er gennemset. Tom for
+  enkeltfiler.
+
+## Hent en hel mappe ind fra serveren
 
 Til at flytte en eksisterende samling ind i appen — fx det der ligger i
-Nextclouds mapper i dag.
+Nextclouds mapper i dag. Filerne skal ligge på serveren; ligger de på din
+egen computer, så brug "Læg en mappe op" ovenfor.
 
 ```bash
 python app.py import ~/gamle-beats beats lucas --proev

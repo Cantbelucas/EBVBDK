@@ -95,6 +95,11 @@
       <input name="note" maxlength="400" placeholder="Fx: mangler mix på omkvædet">
     </label>
 
+    <p class="sheet__alt">
+      Har du en hel mappe?
+      <a href="{{ url_for('folder_page', sektion=active) }}" id="folder-link">Læg mappen op</a>
+    </p>
+
     <div class="sheet__acts">
       <button type="button" class="ghost" data-close-upload>Fortryd</button>
       <button type="submit" class="solid" id="upload-go">Læg op</button>

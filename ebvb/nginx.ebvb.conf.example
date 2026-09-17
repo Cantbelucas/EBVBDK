@@ -37,6 +37,11 @@ server {
     # ADVARSEL: Cloudflares gratis- og Pro-planer afviser request bodies
     # over 100 MB, for de naar herned. Denne linje alene giver jer altsaa
     # ikke 512 MB uploads. Se DEPLOY.md.
+    #
+    # Mappe-upload er ikke ramt: den sender hver fil i bidder paa 32 MB
+    # (CHUNK_BYTES i app.py), saa ingen enkelt forespoergsel kommer i
+    # naerheden af hverken 100 MB eller 512M. Graensen her skal IKKE
+    # haeves for den.
     client_max_body_size 512M;
 
     client_body_timeout 300s;
@@ -82,8 +87,13 @@ server {
 
     # Siden henter kun to fonte udefra. Selvhoster du dem (se README),
     # kan style-src og font-src skaeres ned til 'self'.
+    #
+    # connect-src 'self' er noedvendig for mappe-upload: den sender filerne
+    # med XMLHttpRequest for at kunne vise fremdrift. Uden den falder
+    # connect-src tilbage til default-src 'none', og browseren blokerer
+    # uploaden uden at serveren nogensinde ser noget.
     add_header Content-Security-Policy
-        "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" always;
+        "default-src 'none'; img-src 'self'; media-src 'self'; connect-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" always;
 
     server_tokens off;
 }

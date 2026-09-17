@@ -1078,6 +1078,289 @@ input[type="range"]::-moz-range-thumb {
 .deck__text { min-width: 0; }
 
 /* ============================================================
+   Mappe-upload og gennemse
+
+   Arbejdssider, ikke lytterum: ingen bar i bunden, et bredt glas-
+   panel med en tabel. Roed bruges kun til det der kraever handling -
+   numre der ikke kunne laeses, tomme felter, fejl.
+   ============================================================ */
+
+body.is-tool { padding-bottom: 64px; }
+
+.tool {
+  max-width: var(--shelf);
+  width: calc(100% - 2 * var(--gut));
+  margin: clamp(12px, 2vw, 18px) auto 0;
+  border-radius: var(--r-panel);
+  padding: clamp(20px, 3vw, 34px);
+}
+
+.tool__title {
+  font-family: var(--display);
+  font-size: clamp(56px, 8vw, 96px);
+  line-height: 0.76;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.tool__lead {
+  max-width: 66ch;
+  margin: 16px 0 26px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+
+.tool .notice { margin-bottom: 20px; }
+
+.folder { max-width: 560px; }
+.folder .field__hint b { color: var(--ink); }
+
+.crumb { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.sheet__alt {
+  margin-top: 4px;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+}
+.sheet__alt a { color: var(--ink); text-underline-offset: 3px; }
+.sheet__alt a:hover { color: var(--red); }
+
+.ghost--flag { border-color: var(--red-line); background: var(--red-soft); }
+
+/* ---------- Fundet ---------- */
+
+.found { margin-top: 30px; padding-top: 24px; border-top: 1px solid var(--hair); }
+
+.found__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 24px;
+  margin-bottom: 16px;
+}
+
+.found__title {
+  font-family: var(--display);
+  font-size: 44px;
+  line-height: 0.8;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.found__sum {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.found__sum b { color: var(--ink); }
+.found__sum .is-warn { color: var(--red); }
+
+/* Spoergsmaalet om dubletter. Blokerer Laeg op indtil det er besvaret. */
+.ask {
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--red-line);
+  background: var(--red-soft);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+}
+.ask__text { flex: 1 1 360px; font-size: 13px; line-height: 1.55; }
+.ask__acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.ask__done { flex-basis: 100%; font-size: 11.5px; color: var(--ink-2); }
+
+.progress { margin-bottom: 18px; }
+.progress__text {
+  margin-top: 8px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* ---------- Tabellen ---------- */
+
+.scroll {
+  overflow-x: auto;
+  border-radius: var(--r-card);
+  border: 1px solid var(--hair);
+  background: var(--glass-2);
+}
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.grid th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  font-weight: 400;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  background: var(--paper-2);
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--hair);
+  white-space: nowrap;
+}
+
+.grid td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--hair-soft);
+  vertical-align: middle;
+}
+.grid tbody tr:last-child td { border-bottom: 0; }
+
+.grid__check { width: 40px; text-align: center; }
+.grid__check input, .grid input[type="checkbox"] { accent-color: var(--red); width: 15px; height: 15px; }
+
+.grid__file { min-width: 180px; max-width: 320px; }
+.grid__name { display: block; overflow-wrap: anywhere; }
+.grid__dir {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.grid__title { min-width: 160px; font-weight: 600; }
+.grid__num { text-align: right; white-space: nowrap; color: var(--ink-2); }
+.grid__narrow { width: 104px; }
+.grid__state { min-width: 190px; }
+
+.grid td.is-blank { color: var(--red); }
+
+.grid__why {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--red);
+}
+
+/* Numre der ikke kunne laeses: roed kant til venstre, som det spillende
+   spor i listen. Det er det samme signal - "kig her". */
+.grid tr.is-flagged td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+.grid tr[data-state="skipped"] td,
+.grid tr[data-state="stopped"] td { color: var(--ink-2); }
+
+.badge {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hair);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.badge--ok { color: var(--ink); }
+.badge--warn { color: var(--red); border-color: var(--red-line); background: var(--red-soft); }
+
+.dup { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 7px; }
+.dup__label { font-size: 11px; color: var(--ink-2); }
+.dup__pick {
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--ink);
+  background: var(--field);
+  border: 1px solid var(--red-line);
+  border-radius: var(--r-pill);
+  padding: 4px 10px;
+}
+
+.meter {
+  display: inline-block;
+  vertical-align: middle;
+  width: 110px;
+  height: 5px;
+  margin-left: 8px;
+  border-radius: var(--r-pill);
+  background: var(--hair);
+  overflow: hidden;
+}
+.meter--big { display: block; width: 100%; height: 7px; margin: 0; }
+.meter__fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--red);
+  transition: width 0.2s linear;
+}
+.meter__pct {
+  display: inline-block;
+  min-width: 3.5em;
+  margin-left: 8px;
+  font-size: 11px;
+  text-align: right;
+  color: var(--ink-2);
+}
+
+/* Felterne i gennemse-tabellen. Tomme er stiplede, saa de ses uden farve. */
+.cell {
+  font: inherit;
+  font-size: 12.5px;
+  width: 100%;
+  color: var(--ink);
+  background: var(--field);
+  border: 1px solid var(--hair);
+  border-radius: 10px;
+  padding: 7px 10px;
+}
+.cell:focus { outline: 0; border-color: var(--red-line); box-shadow: 0 0 0 3px var(--red-soft); }
+.cell.is-empty { border-style: dashed; border-color: var(--red-line); background: var(--red-soft); }
+.cell::placeholder { color: var(--red); opacity: 0.8; }
+
+.grid--edit .grid__file { max-width: 260px; }
+.grid--edit td:nth-child(2) { min-width: 220px; }
+
+/* ---------- Knapraekken ---------- */
+
+.tool__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+  margin-top: 18px;
+}
+.tool__bar--sticky {
+  position: sticky;
+  bottom: 14px;
+  z-index: 5;
+  padding: 10px 10px 10px 18px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hair);
+  background: var(--bar);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  box-shadow: 0 18px 50px -32px rgba(0,0,0,0.6), inset 0 1px 0 var(--edge);
+}
+.tool__note {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.tool__acts { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.solid:disabled { opacity: 0.45; cursor: not-allowed; filter: none; box-shadow: none; }
+
+/* ============================================================
    Bevaegelse
 
    Appen er udstyr, ikke en hjemmeside. Derfor decelleration og
@@ -1179,6 +1462,6 @@ input[type="range"]::-moz-range-thumb {
 }
 
 @media print {
-  .deck, .masthead, .grain, .tabs__add { display: none; }
+  .deck, .masthead, .grain, .tabs__add, .tool__bar { display: none; }
   body { padding-bottom: 0; background: #fff; color: #000; }
 }
