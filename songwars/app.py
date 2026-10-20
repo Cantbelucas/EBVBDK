@@ -106,8 +106,8 @@ GRACE_SECONDS = env_int("SONGWARS_GRACE_SECONDS", 10, 0, 120)
 # Saa laenge har et hold til at dreje hjulet. Bagefter drejer serveren det
 # for dem, saa en der er gaaet fra skaermen ikke holder runden op.
 SPIN_SECONDS = env_int("SONGWARS_SPIN_SECONDS", 20, 5, 120)
-SPIN_MS = 4600             # hjulet drejer saa laenge i klienten
-SPIN_REST = 1.6            # ... og staar stille saa laenge, foer naeste tur
+SPIN_MS = 5800             # hjulet drejer saa laenge i klienten
+SPIN_REST = 2.2            # ... og staar stille saa laenge, foer naeste tur
 SPIN_INTRO = 3             # raekkefoelgen vises, foer den foerste tur
 
 MAX_PLAYERS = 40

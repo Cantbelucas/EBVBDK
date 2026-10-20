@@ -269,68 +269,139 @@
 
   /* ---------- 2. Hjulet ----------
      Serveren har allerede trukket genren, naar hjulet drejer - hjulet viser
-     bare hvor den lander. Alle klienter lander paa samme sted: slutvinklen
-     regnes ud fra genren og tidspunktet for spinnet, ikke fra et tilfaeldigt
-     tal her. */
+     bare hvor den lander.
+
+     Hjulets vinkel er en ren funktion af serverens ur: hvert spin starter
+     hvor det forrige landede og lander paa sin genre efter TURNS hele
+     omgange. Slutvinklen regnes ud fra genren og tidspunktet for spinnet,
+     saa alle klienter - ogsaa en der aabner siden midt i et spin - ser
+     hjulet staa samme sted paa samme tid.
+
+     Det drejes med requestAnimationFrame, ikke med en CSS-transition: det
+     er selve spillet, ikke pynt, saa det drejer ogsaa ved reduceret
+     bevaegelse. Pynten (lamper der blinker i hvile, spotlyset) respekterer
+     den stadig. */
 
   var SVGNS = "http://www.w3.org/2000/svg";
-  var wheel = { names: null, turn: 0, lastSpin: null, landed: null };
+  var TURNS = 7;               // hele omgange pr. spin
+  var WIND_MS = 380;           // hjulet traekkes lidt tilbage foer det slippes
+  var WIND_DEG = 9;
+  var BULBS = 36;
+  var wheel = { names: null, landed: null, raf: 0, peg: null, flapAt: -1e9, bulbs: [],
+                shown: null, wonUntil: 0 };
 
-  function svg(tag, attrs) {
+  function svg(tag, attrs, parent) {
     var node = document.createElementNS(SVGNS, tag);
     Object.keys(attrs || {}).forEach(function (k) { node.setAttribute(k, attrs[k]); });
+    if (parent) parent.appendChild(node);
     return node;
   }
 
   // Vinkel i grader med uret fra toppen -> punkt paa cirklen.
-  function point(deg, r) {
+  function xy(deg, r) {
     var a = deg * Math.PI / 180;
-    return (r * Math.sin(a)).toFixed(2) + " " + (-r * Math.cos(a)).toFixed(2);
+    return [(r * Math.sin(a)).toFixed(2), (-r * Math.cos(a)).toFixed(2)];
   }
+  function point(deg, r) { return xy(deg, r).join(" "); }
 
   function shortName(name) {
     var chars = Array.from(name);
-    return chars.length > 13 ? chars.slice(0, 12).join("") + "…" : name;
+    return chars.length > 12 ? chars.slice(0, 11).join("") + "…" : name;
+  }
+
+  function gradient(defs, kind, id, attrs, stops) {
+    var g = svg(kind, Object.assign({ id: id }, attrs), defs);
+    stops.forEach(function (s) { svg("stop", { offset: s[0], "stop-color": s[1], "stop-opacity": s[2] === undefined ? 1 : s[2] }, g); });
+    return g;
   }
 
   function drawWheel(names) {
     var disc = $("wheel-disc");
     disc.textContent = "";
     var n = names.length, step = 360 / n, R = 94;
-    // Teksten skal kunne vaere i en smal skive.
-    var size = Math.max(6, Math.min(12, 60 * step * Math.PI / 180 * 0.55));
-    disc.appendChild(svg("circle", { r: 99, "class": "wheel__rim" }));
+
+    var defs = svg("defs", {}, disc);
+    var user = { gradientUnits: "userSpaceOnUse", cx: 0, cy: 0, r: R };
+    gradient(defs, "radialGradient", "sw-y", user,
+             [[0, "#fff6c2"], [0.35, "#fbe36a"], [0.75, "#f4d43a"], [1, "#d6b01b"]]);
+    gradient(defs, "radialGradient", "sw-b", user,
+             [[0, "#3a3936"], [0.5, "#1b1b1a"], [1, "#070707"]]);
+    gradient(defs, "radialGradient", "sw-g", user,
+             [[0, "#4a463e"], [1, "#1c1a16"]]);
+    gradient(defs, "linearGradient", "sw-rim", { x1: 0, y1: 0, x2: 1, y2: 1 },
+             [[0, "#fff3a8"], [0.22, "#d7ad2c"], [0.45, "#6e5410"], [0.62, "#f0d061"],
+              [0.8, "#a07c16"], [1, "#fbe792"]]);
+    gradient(defs, "linearGradient", "sw-gloss", { x1: 0, y1: 0, x2: 0, y2: 1 },
+             [[0, "#ffffff", 0.34], [1, "#ffffff", 0]]);
+    gradient(defs, "radialGradient", "sw-hubg", { cx: 0.38, cy: 0.32, r: 0.75 },
+             [[0, "#fff3a8"], [0.45, "#d9b12c"], [1, "#6e5410"]]);
+
+    // Skygge under hjulet.
+    svg("circle", { r: 108, cy: 4, "class": "wheel__shadow" }, disc);
+
+    // Det der drejer.
+    var rot = svg("g", { id: "wheel-rot" }, disc);
     names.forEach(function (name, i) {
       // Sort og gul paa skift. Et ulige antal ville give to ens ved siden af
       // hinanden, saa den sidste bliver graa.
       var tone = n > 1 && n % 2 === 1 && i === n - 1 ? "g" : (i % 2 ? "b" : "y");
-      var g = svg("g", { "class": "slice slice--" + tone });
+      var g = svg("g", { "class": "slice slice--" + tone }, rot);
       g.dataset.genre = name;
-      if (n === 1) {
-        g.appendChild(svg("circle", { r: R }));
-      } else {
-        g.appendChild(svg("path", {
-          d: "M0 0L" + point(i * step, R) + "A" + R + " " + R + " 0 " + (step > 180 ? 1 : 0) +
-             " 1 " + point((i + 1) * step, R) + "Z"
-        }));
-      }
+      if (n === 1) svg("circle", { r: R, "class": "slice__face" }, g);
+      else svg("path", {
+        "class": "slice__face",
+        d: "M0 0L" + point(i * step, R) + "A" + R + " " + R + " 0 " + (step > 180 ? 1 : 0) +
+           " 1 " + point((i + 1) * step, R) + "Z"
+      }, g);
+      // En tynd lysere kant langs yderkanten af skiven.
+      if (n > 1) svg("path", {
+        "class": "slice__edge",
+        d: "M" + point(i * step + 0.6, R - 3.5) + "A" + (R - 3.5) + " " + (R - 3.5) + " 0 0 1 " +
+           point((i + 1) * step - 0.6, R - 3.5)
+      }, g);
+      // Navnet staar langs radien, fra pindene og ind mod navet. Skriften
+      // skal baade kunne vaere i skivens bredde og i plads mellem pindene
+      // (r 84) og ringen ved navet (r 34), saa lange navne bliver mindre.
       var mid = (i + 0.5) * step;
+      var text = shortName(name).toUpperCase();
+      var byArc = 60 * step * Math.PI / 180 * 0.5;
+      var byLength = 48 / (Array.from(text).length * 0.72);
+      var size = Math.max(5, Math.min(11, byArc, byLength));
       var label = svg("text", {
         "class": "slice__label",
-        transform: "rotate(" + (mid - 90).toFixed(2) + ") translate(60 0)",
-        "text-anchor": "middle", "dominant-baseline": "central",
+        transform: "rotate(" + (mid - 90).toFixed(2) + ") translate(83 0)",
+        "text-anchor": "end", "dominant-baseline": "central",
         "font-size": size.toFixed(1)
-      });
-      label.textContent = shortName(name);
-      g.appendChild(label);
-      disc.appendChild(g);
+      }, g);
+      label.textContent = text;
     });
-    // Smaa lamper i kanten, som paa et lykkehjul.
-    for (var k = 0; k < 24; k++) {
-      var at = point(k * 15, 97).split(" ");
-      disc.appendChild(svg("circle", { cx: at[0], cy: at[1], r: 1.7,
-                                       "class": "wheel__bulb" + (k % 2 ? " is-odd" : "") }));
+    // Skillelinjer og pinde mellem skiverne.
+    if (n > 1) names.forEach(function (_n, i) {
+      var a = xy(i * step, 23), b = xy(i * step, R);
+      svg("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], "class": "wheel__divider" }, rot);
+      var pin = xy(i * step, R - 7);
+      svg("circle", { cx: pin[0], cy: pin[1], r: 2.3, "class": "wheel__peg" }, rot);
+      svg("circle", { cx: (pin[0] - 0.6).toFixed(2), cy: (pin[1] - 0.6).toFixed(2), r: 0.8, "class": "wheel__peg-shine" }, rot);
+    });
+    // Ringene inde ved navet.
+    svg("circle", { r: 31, "class": "wheel__ring" }, rot);
+    svg("circle", { r: 27, "class": "wheel__ring wheel__ring--dark" }, rot);
+
+    // Det der staar stille: kanten med lamper, glansen og navet.
+    svg("circle", { r: R + 0.5, "class": "wheel__lip" }, disc);
+    svg("circle", { r: 102, "class": "wheel__rim" }, disc);
+    svg("circle", { r: 108.5, "class": "wheel__lip" }, disc);
+    wheel.bulbs = [];
+    for (var k = 0; k < BULBS; k++) {
+      var at = xy(k * 360 / BULBS + 360 / BULBS / 2, 102);
+      svg("circle", { cx: at[0], cy: at[1], r: 3.1, "class": "wheel__socket" }, disc);
+      var bulb = svg("circle", { cx: at[0], cy: at[1], r: 2.2,
+                                 "class": "wheel__bulb" + (k % 2 ? " is-odd" : "") }, disc);
+      wheel.bulbs.push(bulb);
     }
+    svg("path", { d: "M-88 -6A88 88 0 0 1 88 -6C50 -30 -50 -30 -88 -6Z", "class": "wheel__gloss" }, disc);
+    svg("circle", { r: 22, "class": "wheel__hubring" }, disc);
+    wheel.peg = null;
   }
 
   // Et tal mellem 0 og 1, ens hos alle, ud fra spinnets tidspunkt.
@@ -339,24 +410,71 @@
     return x - Math.floor(x);
   }
 
-  function landOn(name, seed, duration, spinMs) {
-    var i = wheel.names.indexOf(name);
-    if (i === -1) return;
-    var step = 360 / wheel.names.length;
-    var target = -(i + 0.5) * step + (jitter(seed) - 0.5) * step * 0.7;
-    var delta = ((target - wheel.turn) % 360 + 360) % 360;
-    var turns = duration > 0 ? Math.max(1, Math.round(6 * duration / spinMs)) : 0;
-    wheel.turn += turns * 360 + delta;
-    var disc = $("wheel-disc");
-    disc.style.setProperty("--spin-ms", Math.max(0, Math.round(duration)) + "ms");
-    disc.style.setProperty("--turn", wheel.turn.toFixed(2) + "deg");
-    $("wheel").classList.toggle("is-spinning", duration > 0);
+  function spinsOf(s) {
+    return s.order.filter(function (o) { return o.spun_at; })
+      .sort(function (a, b) { return a.spun_at - b.spun_at; });
   }
 
-  function latestSpin(spin) {
-    return spin.order.filter(function (o) { return o.spun_at; })
-      .sort(function (a, b) { return b.spun_at - a.spun_at; })[0] || null;
+  // Hvert spin: fra hvor det forrige landede, til sin genre + TURNS omgange.
+  function plan(s) {
+    var at = 0, step = 360 / wheel.names.length;
+    return spinsOf(s).map(function (o) {
+      var i = Math.max(0, wheel.names.indexOf(o.genre));
+      var target = -(i + 0.5) * step + (jitter(o.spun_at) - 0.5) * step * 0.72;
+      var delta = ((target - at) % 360 + 360) % 360;
+      var p = { o: o, from: at, to: at + TURNS * 360 + delta };
+      at = p.to;
+      return p;
+    });
   }
+
+  // Hurtigt ud af start, langsomt ind til sidst - som et rigtigt hjul.
+  function ease(p) { return 1 - Math.pow(1 - p, 3.6); }
+
+  function angleAt(plans, t, ms) {
+    var cur = null;
+    plans.forEach(function (p) { if (p.o.spun_at <= t) cur = p; });
+    if (!cur) return { a: 0, moving: false, plan: null };
+    var e = t - cur.o.spun_at;
+    if (e >= ms) return { a: cur.to, moving: false, plan: cur };
+    if (e < WIND_MS) {
+      return { a: cur.from - WIND_DEG * Math.sin(e / WIND_MS * Math.PI / 2), moving: true, plan: cur };
+    }
+    var p = (e - WIND_MS) / (ms - WIND_MS);
+    return { a: cur.from - WIND_DEG + (cur.to - cur.from + WIND_DEG) * ease(p), moving: true, plan: cur };
+  }
+
+  function frame() {
+    wheel.raf = 0;
+    if (phase !== "spin" || !state || !state.spin || !wheel.names) return;
+    var s = state.spin, t = serverNow(), clock = performance.now();
+    var r = angleAt(plan(s), t, s.spin_ms);
+    var rot = $("wheel-rot");
+    if (rot) rot.setAttribute("transform", "rotate(" + r.a.toFixed(3) + ")");
+
+    // Viseren slaar mod en pind hver gang en skillelinje passerer toppen.
+    var step = 360 / wheel.names.length;
+    var peg = Math.floor((r.a + 0.0001) / step);
+    if (wheel.peg !== null && peg !== wheel.peg && r.moving) wheel.flapAt = clock;
+    wheel.peg = peg;
+    var since = clock - wheel.flapAt;
+    var flap = since < 500 ? -24 * Math.exp(-since / 75) * Math.cos(since / 34) : 0;
+    $("wheel-pointer").style.setProperty("--flap", flap.toFixed(2) + "deg");
+
+    // Lamperne loeber rundt, mens det drejer - hurtigere jo hurtigere det gaar.
+    var box = $("wheel");
+    box.classList.toggle("is-spinning", r.moving);
+    box.classList.toggle("is-won", t < wheel.wonUntil);
+    if (r.moving) {
+      var chase = Math.floor(t / 65);
+      wheel.bulbs.forEach(function (b, k) { b.classList.toggle("is-lit", (k + chase) % 4 === 0); });
+    } else {
+      wheel.bulbs.forEach(function (b) { b.classList.remove("is-lit"); });
+    }
+    if (r.moving || flap !== 0) wheel.raf = requestAnimationFrame(frame);
+  }
+
+  function kick() { if (!wheel.raf) wheel.raf = requestAnimationFrame(frame); }
 
   function genitive(name) { return /[sxz]$/i.test(name) ? name + "'" : name + "s"; }
 
@@ -370,7 +488,6 @@
 
     if (changed("wheel", s.wheel)) {
       wheel.names = s.wheel;
-      wheel.lastSpin = null;
       drawWheel(s.wheel);
     }
     if (wheel.landed === null) {
@@ -379,13 +496,6 @@
       s.order.forEach(function (o) {
         if (o.spun_at && serverNow() >= o.spun_at + s.spin_ms) wheel.landed[o.spun_at] = true;
       });
-    }
-
-    var last = latestSpin(s);
-    if (last && last.spun_at !== wheel.lastSpin) {
-      wheel.lastSpin = last.spun_at;
-      var left = last.spun_at + s.spin_ms - serverNow();
-      landOn(last.genre, last.spun_at, left > 700 ? left : 0, s.spin_ms);
     }
 
     // Raekkefoelgen. Bygges kun om, naar den skifter.
@@ -411,27 +521,27 @@
 
   /* Det der afhaenger af tiden: hvornaar et hjul er landet, hvem der har
      tur, og hvor laenge til serveren drejer selv. Kaldes hvert kvarte
-     sekund. */
+     sekund - selve drejningen tegnes i frame(). */
   function tickSpin() {
     var s = state.spin, solo = state.round.solo, t = serverNow();
-    var last = latestSpin(s);
+    var spins = spinsOf(s);
+    var last = spins[spins.length - 1] || null;
     var spinning = last && t < last.spun_at + s.spin_ms;
-    if (!spinning) $("wheel").classList.remove("is-spinning");
+    kick();
 
     s.order.forEach(function (o) {
       var li = $("spin-order").querySelector('[data-n="' + o.number + '"]');
       var landed = o.spun_at && t >= o.spun_at + s.spin_ms;
+      var slice = o.genre ? $("wheel-disc").querySelector('.slice[data-genre="' + CSS.escape(o.genre) + '"]') : null;
       if (landed && !wheel.landed[o.spun_at]) {
         wheel.landed[o.spun_at] = true;
-        var slice = $("wheel-disc").querySelector('.slice[data-genre="' + CSS.escape(o.genre) + '"]');
+        wheel.wonUntil = t + 1800;
         if (slice) slice.classList.add("is-hit");
         var who = o.mine ? (solo ? "du" : "i") : turnName(o, solo).toLowerCase();
         say(who + " fik " + o.genre.toLowerCase() + (o.auto ? " — hjulet drejede selv." : "."));
+        kick();
       }
-      if (landed) {
-        var sl = $("wheel-disc").querySelector('.slice[data-genre="' + CSS.escape(o.genre) + '"]');
-        if (sl) sl.classList.add("is-taken");
-      }
+      if (landed && slice) slice.classList.add("is-taken");
       if (!li) return;
       var now = !spinning && o.number === s.current;
       li.classList.toggle("is-now", now || (spinning && o === last));
@@ -439,6 +549,21 @@
       setText(li.querySelector(".turn__genre"),
         landed ? o.genre : (spinning && o === last ? "drejer …" : (now ? "har tur" : "")));
     });
+
+    // Resultatet under hjulet: det seneste spin, naar hjulet er landet.
+    var result = $("spin-result");
+    var showing = last && !spinning ? last.spun_at : null;
+    if (showing !== wheel.shown) {
+      wheel.shown = showing;
+      result.classList.remove("is-on");
+      if (showing) {
+        setText($("spin-who"), (last.mine ? (solo ? "Du" : "I") : turnName(last, solo)) + " fik");
+        if (window.SW) { delete $("spin-genre").dataset.text; window.SW.waveText($("spin-genre"), last.genre, false); }
+        else setText($("spin-genre"), last.genre);
+        void result.offsetWidth;                // start animationen forfra
+        result.classList.add("is-on");
+      }
+    }
 
     var btn = $("spin-btn"), nowLine = $("spin-now"), auto = $("spin-auto");
     var cur = s.order.filter(function (o) { return o.number === s.current; })[0];

@@ -170,11 +170,18 @@ Variablerne står øverst i `static/styles.css`.
   popper og bølger. Genren dukker langsomt op af tågen, uret gløder og
   blinker hurtigere til sidst, flammerne tænder og gløder, og vinderen får
   en gul kant med en svag glorie.
-- **Genrehjulet** er sort og gult, med en gul viser i toppen og små lamper
-  i kanten, der blinker, mens det drejer. Taget genrer bliver matte.
-  Rækkefølgen står ved siden af som en menu, hvor den der har tur, er
-  markeret. Hjulet drejes med CSS (`--turn`, `--spin-ms` fra `lobby.js`),
-  så reduceret bevægelse bare springer til resultatet.
+- **Genrehjulet** er skærmens fokus i den fase: spillerlisten træder til
+  side, byen bliver mørkere, og hjulet står stort under et spotlys. Det er
+  sort og gult med en guldkant med lamper, pinde mellem skiverne og en gul
+  flap i toppen, der slår mod pindene. Lamperne løber rundt, mens det
+  drejer, og blinker, når det lander; skiven der vinder, blinker, og
+  genren kommer frem under hjulet. Taget genrer bliver matte.
+- **Hjulets vinkel er en funktion af serverens ur** (`frame()` i
+  `lobby.js`): hvert spin starter, hvor det forrige landede, og slutvinklen
+  regnes ud fra genren og tidspunktet. Så står hjulet samme sted hos alle —
+  også hos en, der åbner siden midt i et spin. Det drejes med
+  `requestAnimationFrame` og drejer også ved reduceret bevægelse, fordi det
+  er selve spillet; pynten omkring respekterer det stadig.
 - **Baggrunden** er den tågede by: tågen driver, lagene flytter sig lidt
   med musen (parallax, kun med mus), støv svæver op, og blade og krager
   kommer og går. Et mørkt slør med svage scanlines ligger over det hele.

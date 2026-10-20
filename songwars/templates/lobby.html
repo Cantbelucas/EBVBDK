@@ -78,13 +78,33 @@
        Holdene drejer paa skift, i en tilfaeldig raekkefoelge. Serveren
        trækker genren - hjulet viser bare, hvor den lander. #}
     <div class="phase spin" data-phase="spin" hidden>
-      <h1 class="stage__title" data-wave>Genrehjulet</h1>
+      <h1 class="stage__title spin__title" data-wave>Genrehjulet</h1>
       <div class="spin__layout">
         <div class="spin__wheelside">
           <div class="wheel" id="wheel">
-            <span class="wheel__pointer" aria-hidden="true"></span>
-            <svg class="wheel__disc" id="wheel-disc" viewBox="-100 -100 200 200" aria-hidden="true"></svg>
+            {# Viseren: en gul flap der haenger ned over kanten og slaar mod
+               pindene, naar hjulet drejer (--flap fra lobby.js). #}
+            <svg class="wheel__pointer" id="wheel-pointer" viewBox="0 0 40 60" aria-hidden="true">
+              <defs>
+                <linearGradient id="sw-ptr" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stop-color="#fff4b0"/>
+                  <stop offset="0.45" stop-color="#f4d43a"/>
+                  <stop offset="1" stop-color="#a9840c"/>
+                </linearGradient>
+              </defs>
+              <path d="M20 57 L5 19 A16 16 0 1 1 35 19 Z" fill="url(#sw-ptr)" stroke="#0b0b0b" stroke-width="2.6" stroke-linejoin="round"/>
+              <path d="M20 47 L11 21" stroke="rgba(255,255,255,0.55)" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="20" cy="14" r="6.5" fill="#0b0b0b"/>
+              <circle cx="20" cy="14" r="2.6" fill="#f4d43a"/>
+            </svg>
+            <svg class="wheel__disc" id="wheel-disc" viewBox="-112 -112 224 224" aria-hidden="true"></svg>
             <span class="wheel__hub" aria-hidden="true"><span class="flame"></span></span>
+          </div>
+        </div>
+        <div class="spin__controls">
+          <div class="spin__result" id="spin-result" aria-hidden="true">
+            <span class="spin__who" id="spin-who"></span>
+            <span class="spin__genre loud" id="spin-genre"></span>
           </div>
           <p class="spin__now" id="spin-now" role="status" aria-live="polite"></p>
           <button class="btn btn--go spin__btn" id="spin-btn" type="button" hidden>Spin hjulet</button>
