@@ -51,15 +51,7 @@
       </label>
     </div>
 
-    <label class="field">
-      <span class="field__label">Genre</span>
-      <select class="input" name="genre">
-        <option value="">Tilfældig</option>
-        {% for g in genres %}
-          <option value="{{ g.id }}">{{ g.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
+    <p class="note">Genren kommer fra hjulet — alle får hver sin.</p>
     {% if not genres %}
       <p class="note note--warn">Der er ingen beats endnu. Runden kan først starte, når en admin har lagt nogle op.</p>
     {% endif %}

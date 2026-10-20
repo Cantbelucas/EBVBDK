@@ -2,9 +2,10 @@
 """
 Songwars.
 
-Spillere joiner en lobby med en kode, faar en genre og et beat, laver et
-nummer ovenpaa i deres eget program, afleverer det, og alle stemmer 1-5
-flammer. Ingen konti: man er et kaldenavn i en signeret cookie.
+Spillere joiner en lobby med en kode, drejer genrehjulet paa skift - alle
+faar hver sin genre og et beat i den - laver et nummer ovenpaa i deres eget
+program, afleverer det, og alle stemmer 1-5 flammer. Ingen konti: man er et
+kaldenavn i en signeret cookie.
 
     python app.py              udviklingsserver paa :8092
     python app.py ryd          slet udloebne lobbyer og gamle afleveringer nu
@@ -17,7 +18,9 @@ ingen timer i klienten der bestemmer noget - fristen haandhaeves her.
 
     status    fase
     lobby     lobby       venter paa spillere
-    running   reveal      genre, beat og hold er trukket   (indtil make_at)
+    spinning  spin        holdene drejer hjulet paa skift
+    running   spin        det sidste hjul staar ikke stille endnu (turn_at)
+              reveal      hver sin genre og sit beat        (indtil make_at)
               make        nedtaelling til deadline         (indtil deadline + grace)
     voting    vote        alle stemmer
     done      result      ranglisten
@@ -100,6 +103,12 @@ REVEAL_SECONDS = env_int("SONGWARS_REVEAL_SECONDS", 10, 0, 120)
 # Et upload paa 50 MB tager tid. Det der naar frem lige efter nul, faar
 # lov - alt efter det her afvises. Saet til 0 for at vaere helt stram.
 GRACE_SECONDS = env_int("SONGWARS_GRACE_SECONDS", 10, 0, 120)
+# Saa laenge har et hold til at dreje hjulet. Bagefter drejer serveren det
+# for dem, saa en der er gaaet fra skaermen ikke holder runden op.
+SPIN_SECONDS = env_int("SONGWARS_SPIN_SECONDS", 20, 5, 120)
+SPIN_MS = 4600             # hjulet drejer saa laenge i klienten
+SPIN_REST = 1.6            # ... og staar stille saa laenge, foer naeste tur
+SPIN_INTRO = 3             # raekkefoelgen vises, foer den foerste tur
 
 MAX_PLAYERS = 40
 MINUTES_RANGE = (1, 180)
@@ -120,6 +129,7 @@ LIMITS = {
     "upload_player": (12, 600),
     "admin": (6, 900),
     "vote": (300, 600),
+    "spin": (30, 600),
 }
 
 ONLINE_SECONDS = 15        # set inden for, saa staar man som "her"
@@ -206,13 +216,21 @@ CREATE TABLE IF NOT EXISTS lobbies (
     deadline    REAL,
     voting_at   REAL,
     done_at     REAL,
+    turn_at     REAL,                    -- hjulet: hvornaar naeste tur begynder
     created_at  REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS teams (
     id          INTEGER PRIMARY KEY,
     lobby_id    INTEGER NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
-    number      INTEGER NOT NULL
+    number      INTEGER NOT NULL,
+    spin_order  INTEGER,
+    genre_id    INTEGER,
+    genre_name  TEXT NOT NULL DEFAULT '',
+    beat_id     TEXT REFERENCES beats(id) ON DELETE SET NULL,
+    beat_title  TEXT NOT NULL DEFAULT '',
+    spun_at     REAL,
+    spun_by     INTEGER                  -- NULL = serveren drejede for holdet
 );
 
 CREATE TABLE IF NOT EXISTS players (
@@ -284,11 +302,38 @@ def close_db(_exc):
         conn.close()
 
 
+# Kolonner der er kommet til siden foerste version. CREATE TABLE IF NOT
+# EXISTS roerer ikke en tabel der findes, saa de tilfoejes her.
+COLUMNS = {
+    "lobbies": [("turn_at", "REAL")],
+    "teams": [
+        ("spin_order", "INTEGER"),
+        ("genre_id", "INTEGER"),
+        ("genre_name", "TEXT NOT NULL DEFAULT ''"),
+        ("beat_id", "TEXT REFERENCES beats(id) ON DELETE SET NULL"),
+        ("beat_title", "TEXT NOT NULL DEFAULT ''"),
+        ("spun_at", "REAL"),
+        ("spun_by", "INTEGER"),
+    ],
+}
+
+
 def init_db():
     conn = connect()
     # WAL: polling-laesninger venter ikke paa en der skriver.
     conn.execute("PRAGMA journal_mode = WAL")
     conn.executescript(SCHEMA)
+    for table, columns in COLUMNS.items():
+        have = {r["name"] for r in conn.execute("PRAGMA table_info({0})".format(table))}
+        for name, kind in columns:
+            if name in have:
+                continue
+            try:
+                conn.execute("ALTER TABLE {0} ADD COLUMN {1} {2}".format(table, name, kind))
+            except sqlite3.OperationalError as exc:
+                # Den anden gunicorn-worker naaede det foerst.
+                if "duplicate column" not in str(exc):
+                    raise
     conn.commit()
     conn.close()
 
@@ -557,8 +602,11 @@ def phase_of(lobby, t=None):
     t = now() if t is None else t
     status = lobby["status"]
     if status == "running":
+        if lobby["turn_at"] is not None and t < lobby["turn_at"]:
+            return "spin"                             # det sidste hjul drejer stadig
         return "reveal" if t < lobby["make_at"] else "make"
-    return {"lobby": "lobby", "voting": "vote", "done": "result", "closed": "closed"}[status]
+    return {"lobby": "lobby", "spinning": "spin", "voting": "vote", "done": "result",
+            "closed": "closed"}[status]
 
 
 def genres_with_beats(conn):
@@ -576,7 +624,7 @@ def advance(lobby):
     t = now()
     lid, status = lobby["id"], lobby["status"]
 
-    if status in ("lobby", "running", "voting") and t >= lobby["created_at"] + LOBBY_SECONDS:
+    if status in ("lobby", "spinning", "running", "voting") and t >= lobby["created_at"] + LOBBY_SECONDS:
         # En afstemning i gang faar sit resultat; alt andet lukker bare.
         new = "done" if status == "voting" else "closed"
         conn.execute("UPDATE lobbies SET status = ?, done_at = ? WHERE id = ? AND status = ?",
@@ -599,12 +647,92 @@ def advance(lobby):
                 conn.execute("UPDATE lobbies SET status = 'done', done_at = ? WHERE id = ?", (t, lid))
         conn.commit()
 
+    elif status == "spinning" and lobby["turn_at"] is not None \
+            and t >= lobby["turn_at"] + SPIN_SECONDS:
+        # Holdet der har tur, har ikke drejet. Serveren goer det - ogsaa for
+        # flere hold i traek, hvis ingen har kigget i et stykke tid. Hvert
+        # spin faar det tidspunkt, det skulle have haft.
+        turn_at = lobby["turn_at"]
+        while isinstance(turn_at, float) and t >= turn_at + SPIN_SECONDS:
+            turn_at = spin(conn, lid, turn_at + SPIN_SECONDS, by=None)
+
     elif status == "voting" and voting_complete(conn, lid):
         conn.execute("UPDATE lobbies SET status = 'done', done_at = ? WHERE id = ? AND status = 'voting'",
                      (t, lid))
         conn.commit()
 
     return conn.execute("SELECT * FROM lobbies WHERE id = ?", (lid,)).fetchone()
+
+
+# --------------------------------------------------------------------
+# Hjulet
+# --------------------------------------------------------------------
+
+def team_on_turn(conn, lid):
+    return conn.execute(
+        "SELECT * FROM teams WHERE lobby_id = ? AND spun_at IS NULL"
+        " ORDER BY spin_order LIMIT 1", (lid,)).fetchone()
+
+
+def wheel_genres(conn, lid):
+    """Det hjulet viser: alle genrer med beats, plus dem der allerede er
+    trukket i lobbyen (hvis en admin har fjernet et beat siden)."""
+    names = {r["name"] for r in genres_with_beats(conn)}
+    names |= {r["genre_name"] for r in conn.execute(
+        "SELECT genre_name FROM teams WHERE lobby_id = ? AND genre_name != ''", (lid,))}
+    return sorted(names, key=str.casefold)
+
+
+def spin(conn, lid, at, by=None, team_id=None):
+    """Drejer hjulet for holdet der har tur, og giver det en genre ingen
+    andre har, og et tilfaeldigt beat i den. Hjulet viser bare det
+    resultat - det er serveren der trækker.
+
+    Returnerer hvornaar naeste tur begynder, None naar alle har drejet,
+    eller False hvis det ikke var `team_id`s tur (eller hjulet ikke stod
+    stille endnu). Det hele sker i en BEGIN IMMEDIATE, saa to workers
+    ikke kan dreje samme tur."""
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    lobby = conn.execute("SELECT * FROM lobbies WHERE id = ?", (lid,)).fetchone()
+    team = team_on_turn(conn, lid)
+    if (lobby["status"] != "spinning" or team is None or at < lobby["turn_at"]
+            or (team_id is not None and team["id"] != team_id)):
+        conn.rollback()
+        return False
+
+    rng = secrets.SystemRandom()
+    taken = {r["genre_id"] for r in conn.execute(
+        "SELECT genre_id FROM teams WHERE lobby_id = ? AND genre_id IS NOT NULL", (lid,))}
+    available = genres_with_beats(conn)
+    free = [g for g in available if g["id"] not in taken]
+    if not free:
+        # Kun hvis en admin har fjernet beats midt i hjulet: saa hellere
+        # en genre to gange end en runde der sidder fast.
+        free = available
+    if not free:
+        conn.execute("UPDATE lobbies SET status = 'closed', done_at = ? WHERE id = ?", (at, lid))
+        conn.commit()
+        return None
+    genre = rng.choice(free)
+    beat = rng.choice(conn.execute("SELECT * FROM beats WHERE genre_id = ?", (genre["id"],)).fetchall())
+    conn.execute(
+        "UPDATE teams SET genre_id = ?, genre_name = ?, beat_id = ?, beat_title = ?,"
+        " spun_at = ?, spun_by = ? WHERE id = ?",
+        (genre["id"], genre["name"], beat["id"], beat["title"], at, by, team["id"]))
+
+    still = at + SPIN_MS / 1000 + SPIN_REST         # hjulet staar stille igen
+    if team_on_turn(conn, lid) is None:
+        make_at = still + REVEAL_SECONDS
+        conn.execute(
+            "UPDATE lobbies SET status = 'running', turn_at = ?, make_at = ?, deadline = ?"
+            " WHERE id = ?", (still, make_at, make_at + lobby["minutes"] * 60, lid))
+        conn.commit()
+        return None
+    conn.execute("UPDATE lobbies SET turn_at = ? WHERE id = ?", (still, lid))
+    conn.commit()
+    return still
 
 
 def vote_progress(conn, lid):
@@ -651,10 +779,14 @@ def start_problem(conn, lobby, players):
     available = genres_with_beats(conn)
     if not available:
         return "Der er ingen beats endnu. En admin skal lægge nogle op."
-    if lobby["genre_id"] is not None and lobby["genre_id"] not in {r["id"] for r in available}:
-        return "Den valgte genre har ingen beats. Vælg en anden, eller tilfældig."
+    teams = max(1, len(players) // size)
+    if teams > len(available):
+        return ("Der bliver {0} hold, men der er kun {1} genrer med beats — og alle skal have "
+                "hver sin. En admin kan lægge beats op i flere genrer, eller I kan spille på "
+                "større hold.".format(teams, len(available)))
     left = lobby["created_at"] + LOBBY_SECONDS - now()
-    if left < REVEAL_SECONDS + lobby["minutes"] * 60 + 15 * 60:
+    spinning = SPIN_INTRO + teams * (SPIN_SECONDS + SPIN_MS / 1000 + SPIN_REST)
+    if left < spinning + REVEAL_SECONDS + lobby["minutes"] * 60 + 15 * 60:
         return ("Lobbyen udløber om {0} min. — der er ikke tid til en runde på {1} min. "
                 "Lav en ny lobby.".format(max(0, int(left // 60)), lobby["minutes"]))
     return None
@@ -682,16 +814,8 @@ def read_settings(form):
         return None, "Tiden skal være mellem {0} og {1} minutter.".format(*MINUTES_RANGE)
     if not TEAM_RANGE[0] <= team_size <= TEAM_RANGE[1]:
         return None, "Holdstørrelsen skal være mellem {0} og {1}.".format(*TEAM_RANGE)
-    genre_id = None
-    raw = (form.get("genre") or "").strip()
-    if raw:
-        try:
-            genre_id = int(raw)
-        except ValueError:
-            return None, "Ukendt genre."
-        if not db().execute("SELECT 1 FROM genres WHERE id = ?", (genre_id,)).fetchone():
-            return None, "Ukendt genre."
-    return {"minutes": minutes, "team_size": team_size, "genre_id": genre_id}, None
+    # Genren vaelges ikke laengere: hjulet giver hvert hold sin egen.
+    return {"minutes": minutes, "team_size": team_size}, None
 
 
 @app.post("/ny")
@@ -709,9 +833,8 @@ def create_lobby():
     t = now()
     code = new_code(conn)
     cur = conn.execute(
-        "INSERT INTO lobbies (code, minutes, team_size, genre_id, created_at)"
-        " VALUES (?,?,?,?,?)",
-        (code, settings["minutes"], settings["team_size"], settings["genre_id"], t))
+        "INSERT INTO lobbies (code, minutes, team_size, created_at) VALUES (?,?,?,?)",
+        (code, settings["minutes"], settings["team_size"], t))
     lid = cur.lastrowid
     pid = conn.execute(
         "INSERT INTO players (lobby_id, name, joined_at, seen_at) VALUES (?,?,?,?)",
@@ -826,11 +949,6 @@ def state_for(conn, lobby, me, t):
         "SELECT * FROM players WHERE lobby_id = ? ORDER BY joined_at", (lid,)).fetchall()
     my_team = me["team_id"]
 
-    genre = None
-    if lobby["genre_id"] is not None:
-        row = conn.execute("SELECT name FROM genres WHERE id = ?", (lobby["genre_id"],)).fetchone()
-        genre = row["name"] if row else None
-
     state = {
         "phase": phase,
         "now": ms(t),
@@ -838,8 +956,7 @@ def state_for(conn, lobby, me, t):
         "expires": ms(lobby["created_at"] + LOBBY_SECONDS),
         "me": {"id": me["id"], "name": me["name"], "owner": is_owner,
                "team": teams.get(my_team)},
-        "settings": {"minutes": lobby["minutes"], "team_size": lobby["team_size"],
-                     "genre": genre, "genre_id": lobby["genre_id"]},
+        "settings": {"minutes": lobby["minutes"], "team_size": lobby["team_size"]},
         "players": [{
             "id": p["id"], "name": p["name"],
             "owner": p["id"] == lobby["owner_id"],
@@ -856,23 +973,48 @@ def state_for(conn, lobby, me, t):
     if phase == "closed":
         return state
 
-    # Fra reveal og frem: genren, beatet og holdene er trukket.
+    # Fra hjulet og frem: holdene er trukket, og genrerne kommer en ad gangen.
     members = {}
     for p in players:
         if p["team_id"] in teams:
             members.setdefault(teams[p["team_id"]], []).append(p["name"])
+    rows = {r["id"]: r for r in conn.execute("SELECT * FROM teams WHERE lobby_id = ?", (lid,))}
+    genre_of = {r["number"]: team_genre(lobby, r) for r in rows.values()}
+    mine_row = rows.get(my_team)
+    genre, beat_title, beat_id = team_genre(lobby, mine_row) if mine_row else ("", "", None)
     state["round"] = {
-        "genre": lobby["genre_name"],
-        "beat": lobby["beat_title"],
-        "beat_url": url_for("beat_file", code=lobby["code"]) if lobby["beat_id"] else None,
+        "genre": genre,
+        "beat": beat_title,
+        "beat_url": url_for("beat_file", code=lobby["code"]) if beat_id else None,
         "make_at": ms(lobby["make_at"]),
         "deadline": ms(lobby["deadline"]),
         "grace": GRACE_SECONDS,
         "minutes": lobby["minutes"],
-        "teams": [{"number": n, "members": members.get(n, []),
+        "teams": [{"number": n, "members": members.get(n, []), "genre": genre_of[n][0],
                    "mine": n == teams.get(my_team)} for n in sorted(set(teams.values()))],
         "solo": lobby["team_size"] == 1,
     }
+
+    if phase == "spin":
+        on_turn = team_on_turn(conn, lid)
+        state["spin"] = {
+            "wheel": wheel_genres(conn, lid),
+            "order": [{
+                "number": r["number"],
+                "members": members.get(r["number"], []),
+                "mine": r["id"] == my_team,
+                "genre": r["genre_name"] or None,
+                "spun_at": ms(r["spun_at"]),
+                "auto": r["spun_at"] is not None and r["spun_by"] is None,
+            } for r in sorted(rows.values(), key=lambda r: r["spin_order"] or 0)],
+            "current": on_turn["number"] if on_turn else None,
+            "my_turn": bool(on_turn) and on_turn["id"] == my_team,
+            "turn_at": ms(lobby["turn_at"]),
+            "turn_seconds": SPIN_SECONDS,
+            "spin_ms": SPIN_MS,
+            "spin_url": url_for("spin_wheel", code=lobby["code"]),
+        }
+        return state
 
     subs = conn.execute(
         "SELECT s.*, p.name AS by_name FROM submissions s"
@@ -927,6 +1069,7 @@ def state_for(conn, lobby, me, t):
             "id": s["id"],
             "label": "Nummer {0}".format(s["position"]) if s["position"] else "",
             "team": teams[s["team_id"]],
+            "genre": genre_of[teams[s["team_id"]]][0],
             "members": members.get(teams[s["team_id"]], []),
             "by": s["by_name"],
             "average": round(total / n, 2) if n else None,
@@ -950,6 +1093,14 @@ def state_for(conn, lobby, me, t):
     return state
 
 
+def team_genre(lobby, team):
+    """(genre, beattitel, beat-id) for et hold. Runder fra foer hjulet havde
+    en genre for hele lobbyen - de bruger den."""
+    if team["genre_name"]:
+        return team["genre_name"], team["beat_title"], team["beat_id"]
+    return lobby["genre_name"], lobby["beat_title"], lobby["beat_id"]
+
+
 @app.post("/l/<code>/indstillinger")
 def lobby_settings(code):
     lobby = lobby_or_404(code)
@@ -960,8 +1111,8 @@ def lobby_settings(code):
     settings, error = read_settings(request.form)
     if error:
         return fail(400, error, back)
-    db().execute("UPDATE lobbies SET minutes = ?, team_size = ?, genre_id = ? WHERE id = ?",
-                 (settings["minutes"], settings["team_size"], settings["genre_id"], lobby["id"]))
+    db().execute("UPDATE lobbies SET minutes = ?, team_size = ? WHERE id = ?",
+                 (settings["minutes"], settings["team_size"], lobby["id"]))
     db().commit()
     return redirect(back)
 
@@ -989,7 +1140,7 @@ def leave(code):
     lobby = lobby_or_404(code)
     me = member_or_403(lobby)
     conn = db()
-    if lobby["status"] in ("running", "voting"):
+    if lobby["status"] in ("spinning", "running", "voting"):
         # Man kan ikke forlade en runde: holdet og stemmerne skal staa ved
         # magt, og uden cookien kunne man ikke komme ind igen.
         return fail(409, "Runden er i gang. Du kan lukke fanen og komme tilbage "
@@ -1028,29 +1179,46 @@ def start(code):
     if problem:
         return fail(409, problem, back)
 
-    rng = secrets.SystemRandom()
-    if lobby["genre_id"] is None:
-        genre = rng.choice(genres_with_beats(conn))
-    else:
-        genre = conn.execute("SELECT id, name FROM genres WHERE id = ?", (lobby["genre_id"],)).fetchone()
-    beat = rng.choice(conn.execute("SELECT * FROM beats WHERE genre_id = ?", (genre["id"],)).fetchall())
-
     t = now()
-    make_at = t + REVEAL_SECONDS
     won = conn.execute(
-        "UPDATE lobbies SET status = 'running', beat_id = ?, genre_name = ?, beat_title = ?,"
-        " started_at = ?, make_at = ?, deadline = ? WHERE id = ? AND status = 'lobby'",
-        (beat["id"], genre["name"], beat["title"], t, make_at,
-         make_at + lobby["minutes"] * 60, lobby["id"])).rowcount
+        "UPDATE lobbies SET status = 'spinning', started_at = ?, turn_at = ?"
+        " WHERE id = ? AND status = 'lobby'",
+        (t, t + SPIN_INTRO, lobby["id"])).rowcount
     if not won:                                       # dobbeltklik
         conn.rollback()
         return redirect(back)
-    for number, members in enumerate(make_teams([p["id"] for p in players], lobby["team_size"]), 1):
-        tid = conn.execute("INSERT INTO teams (lobby_id, number) VALUES (?, ?)",
-                           (lobby["id"], number)).lastrowid
+    teams = make_teams([p["id"] for p in players], lobby["team_size"])
+    # Hvem der drejer hjulet foerst, er trukket for sig - ikke holdnumrene.
+    order = list(range(1, len(teams) + 1))
+    secrets.SystemRandom().shuffle(order)
+    for number, members in enumerate(teams, 1):
+        tid = conn.execute("INSERT INTO teams (lobby_id, number, spin_order) VALUES (?, ?, ?)",
+                           (lobby["id"], number, order[number - 1])).lastrowid
         conn.executemany("UPDATE players SET team_id = ? WHERE id = ?", [(tid, pid) for pid in members])
     conn.commit()
     return redirect(back)
+
+
+@app.post("/l/<code>/spin")
+def spin_wheel(code):
+    """Den der har tur, drejer hjulet. Svaret kommer med i naeste /state."""
+    lobby = lobby_or_404(code)
+    me = member_or_403(lobby)
+    if limited("spin", me["id"]):
+        return too_many()
+    if lobby["status"] != "spinning":
+        return json_error(409, "Hjulet er drejet færdigt.")
+    if me["team_id"] is None:
+        return json_error(403, "Du er ikke på et hold i den her runde.")
+    t = now()
+    team = team_on_turn(db(), lobby["id"])
+    if team is None or team["id"] != me["team_id"]:
+        return json_error(409, "Det er ikke din tur.")
+    if t < lobby["turn_at"]:
+        return json_error(409, "Vent til hjulet står stille.")
+    if spin(db(), lobby["id"], t, by=me["id"], team_id=me["team_id"]) is False:
+        return json_error(409, "Det er ikke din tur.")
+    return jsonify({"ok": True})
 
 
 @app.post("/l/<code>/afslut")
@@ -1089,11 +1257,14 @@ def safe_download_name(*parts):
 
 @app.get("/l/<code>/beat")
 def beat_file(code):
+    """Holdets eget beat - hvert hold har sit."""
     lobby = lobby_or_404(code)
-    member_or_403(lobby)
-    if lobby["status"] not in ("running", "voting", "done") or not lobby["beat_id"]:
+    me = member_or_403(lobby)
+    if lobby["status"] not in ("running", "voting", "done") or me["team_id"] is None:
         abort(404)
-    beat = db().execute("SELECT * FROM beats WHERE id = ?", (lobby["beat_id"],)).fetchone()
+    team = db().execute("SELECT * FROM teams WHERE id = ?", (me["team_id"],)).fetchone()
+    genre, _title, beat_id = team_genre(lobby, team)
+    beat = db().execute("SELECT * FROM beats WHERE id = ?", (beat_id,)).fetchone() if beat_id else None
     if beat is None:
         abort(404)
     download = request.args.get("hent") == "1"
@@ -1101,7 +1272,7 @@ def beat_file(code):
         BEATS / beat["file"], conditional=True,
         mimetype="audio/mpeg" if beat["kind"] == "mp3" else "audio/wav",
         as_attachment=download,
-        download_name=safe_download_name("Songwars", lobby["genre_name"], beat["title"])
+        download_name=safe_download_name("Songwars", genre, beat["title"])
         + "." + beat["kind"] if download else None)
 
 
@@ -1261,7 +1432,7 @@ def admin():
         "SELECT b.*, g.name AS genre FROM beats b JOIN genres g ON g.id = b.genre_id"
         " ORDER BY g.name, b.title").fetchall()
     stats = {
-        "lobbies": conn.execute("SELECT COUNT(*) FROM lobbies WHERE status IN ('lobby','running','voting')").fetchone()[0],
+        "lobbies": conn.execute("SELECT COUNT(*) FROM lobbies WHERE status IN ('lobby','spinning','running','voting')").fetchone()[0],
         "subs": conn.execute("SELECT COUNT(*), COALESCE(SUM(size), 0) FROM submissions").fetchone(),
     }
     return render_template("admin.html", genres=genres, beats=beats, stats=stats,
@@ -1370,8 +1541,9 @@ def admin_beat_delete(bid):
     if beat is None:
         abort(404)
     busy = conn.execute(
-        "SELECT COUNT(*) FROM lobbies WHERE beat_id = ? AND status IN ('running', 'voting')",
-        (bid,)).fetchone()[0]
+        "SELECT COUNT(*) FROM lobbies l WHERE l.status IN ('spinning', 'running', 'voting')"
+        " AND (l.beat_id = ? OR EXISTS (SELECT 1 FROM teams t WHERE t.lobby_id = l.id AND t.beat_id = ?))",
+        (bid, bid)).fetchone()[0]
     if busy:
         return fail(409, "{0} bruges i en runde lige nu. Prøv igen når den er slut."
                     .format(beat["title"]), url_for("admin"))

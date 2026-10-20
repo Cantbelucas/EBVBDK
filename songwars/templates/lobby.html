@@ -66,15 +66,6 @@
                        min="{{ team_range[0] }}" max="{{ team_range[1] }}" required>
               </label>
             </div>
-            <label class="field">
-              <span class="field__label">Genre</span>
-              <select class="input" name="genre">
-                <option value="">Tilfældig</option>
-                {% for g in genres %}
-                  <option value="{{ g.id }}" {% if g.id == lobby.genre_id %}selected{% endif %}>{{ g.name }}</option>
-                {% endfor %}
-              </select>
-            </label>
             <button class="btn" type="submit">Gem indstillinger</button>
           </form>
         </details>
@@ -83,10 +74,33 @@
       {% endif %}
     </div>
 
-    {# ---------- 2. Reveal ---------- #}
+    {# ---------- 2. Hjulet ----------
+       Holdene drejer paa skift, i en tilfaeldig raekkefoelge. Serveren
+       trækker genren - hjulet viser bare, hvor den lander. #}
+    <div class="phase spin" data-phase="spin" hidden>
+      <h1 class="stage__title" data-wave>Genrehjulet</h1>
+      <div class="spin__layout">
+        <div class="spin__wheelside">
+          <div class="wheel" id="wheel">
+            <span class="wheel__pointer" aria-hidden="true"></span>
+            <svg class="wheel__disc" id="wheel-disc" viewBox="-100 -100 200 200" aria-hidden="true"></svg>
+            <span class="wheel__hub" aria-hidden="true"><span class="flame"></span></span>
+          </div>
+          <p class="spin__now" id="spin-now" role="status" aria-live="polite"></p>
+          <button class="btn btn--go spin__btn" id="spin-btn" type="button" hidden>Spin hjulet</button>
+          <p class="spin__auto" id="spin-auto"></p>
+        </div>
+        <div class="spin__orderside">
+          <p class="field__label">Rækkefølge</p>
+          <ol class="turns" id="spin-order"></ol>
+        </div>
+      </div>
+    </div>
+
+    {# ---------- 3. Reveal ---------- #}
     <div class="phase reveal" data-phase="reveal" hidden>
       <div class="genrecard">
-        <p class="genrecard__label">Genren er</p>
+        <p class="genrecard__label" id="reveal-label">Din genre er</p>
         <h1 class="reveal__genre loud" id="reveal-genre"></h1>
       </div>
       <p class="reveal__beat">Beat: <strong id="reveal-beat"></strong></p>
@@ -94,7 +108,7 @@
       <p class="muted">Tiden starter om <strong class="num" id="reveal-left">—</strong></p>
     </div>
 
-    {# ---------- 3. Lav / aflever ---------- #}
+    {# ---------- 4. Lav / aflever ---------- #}
     <div class="phase" data-phase="make" hidden>
       <div class="timer" id="timer" role="timer" aria-label="Tid tilbage">
         <span class="timer__digits loud" id="timer-text">--:--</span>
@@ -142,7 +156,7 @@
       {% endif %}
     </div>
 
-    {# ---------- 4. Afstemning ---------- #}
+    {# ---------- 5. Afstemning ---------- #}
     <div class="phase" data-phase="vote" hidden>
       <h1 class="stage__title" data-wave>Afstemning</h1>
       <p class="progress-line" id="vote-progress"></p>
@@ -157,7 +171,7 @@
       {% endif %}
     </div>
 
-    {# ---------- 5. Resultat ---------- #}
+    {# ---------- 6. Resultat ---------- #}
     <div class="phase" data-phase="result" hidden>
       <h1 class="stage__title" data-wave>Resultat</h1>
       <p class="muted" id="result-beat"></p>

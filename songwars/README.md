@@ -1,7 +1,8 @@
 # Songwars
 
-Spillere joiner en lobby, får en genre og et beat, laver et nummer ovenpå
-det i deres eget program, afleverer det, og alle stemmer 1–5 flammer.
+Spillere joiner en lobby, drejer genrehjulet på skift — alle får hver sin
+genre og et beat i den — laver et nummer ovenpå det i deres eget program,
+afleverer det, og alle stemmer 1–5 flammer.
 Navnene kommer først frem på ranglisten.
 
 Ingen konti. Man er et kaldenavn i en signeret cookie. Kun admin logger
@@ -66,11 +67,12 @@ en anden browser pr. spiller. Hver browser er én spiller.
 
 | Fase | Hvad sker der | Hvem bestemmer |
 |---|---|---|
-| **Lobby** | Spillere joiner med koden. Alle ser listen live. Ejeren kan ændre tid, holdstørrelse og genre, og fjerne spillere. | Ejeren starter |
-| **Reveal** | Serveren trækker genren (eller bruger den valgte), et tilfældigt beat i den, og fordeler holdene tilfældigt. Varer `SONGWARS_REVEAL_SECONDS` (10 s). | Tiden |
-| **Lav** | Nedtælling. Beatet kan afspilles og hentes. Ét nummer pr. hold; et nyt upload fra en på holdet erstatter det forrige. | Tiden — eller ejeren lukker før |
+| **Lobby** | Spillere joiner med koden. Alle ser listen live. Ejeren kan ændre tid og holdstørrelse, og fjerne spillere. | Ejeren starter |
+| **Genrehjulet** | Holdene fordeles tilfældigt, og der trækkes en tilfældig rækkefølge. Holdene drejer hjulet på skift (solo: hver spiller). Serveren trækker en genre ingen andre har fået, og et tilfældigt beat i den — hjulet viser bare, hvor den lander, ens hos alle. Drejer et hold ikke inden for `SONGWARS_SPIN_SECONDS` (20 s), gør serveren det. | Holdene — eller tiden |
+| **Reveal** | Hvert hold ser sin genre og sit beat. Varer `SONGWARS_REVEAL_SECONDS` (10 s). | Tiden |
+| **Lav** | Nedtælling. Holdets eget beat kan afspilles og hentes. Ét nummer pr. hold; et nyt upload fra en på holdet erstatter det forrige. | Tiden — eller ejeren lukker før |
 | **Afstemning** | Numrene i tilfældig rækkefølge som "Nummer 1, 2, 3 …". Alle giver 1–5 flammer til alle numre undtagen holdets eget. Stemmer kan ændres. | Slutter når alle har stemt — eller ejeren lukker |
-| **Resultat** | Rangliste efter gennemsnit af flammer. Navnene afsløres. Lige gennemsnit giver samme plads. | — |
+| **Resultat** | Rangliste efter gennemsnit af flammer. Navnene og genrerne afsløres. Lige gennemsnit giver samme plads. | — |
 
 **Tiden håndhæves på serveren.** Fasen gemmes som status plus
 tidsstempler, og hver forespørgsel regner ud hvor vi er (`advance()` i
@@ -87,7 +89,8 @@ gå tabt. Sæt den til `0` for at være helt stram.
 der er tilovers fordeles ud. Intet hold bliver mindre end den valgte
 størrelse, og ingen to hold er mere end én fra hinanden (7 spillere i
 hold på 2 → 3, 2, 2). Der skal være mindst to hold, ellers er der ingen at
-stemme på.
+stemme på. Og der skal være mindst lige så mange genrer med beats, som der
+bliver hold — alle skal have hver sin.
 
 **Ejeren** er den der oprettede lobbyen. Forlader ejeren lobbyen før
 start, går ejerskabet videre til den der har været længst med. Under en
@@ -107,6 +110,7 @@ Alt kommer fra miljøet (`.env`). Ingen hemmeligheder i koden.
 | `SONGWARS_MAX_BEAT_MB` | `95` | Pr. beat (kun admin). Under Cloudflares 100 MB. |
 | `SONGWARS_LOBBY_HOURS` | `24` | Derefter lukker lobbyen. |
 | `SONGWARS_KEEP_DAYS` | `7` | Derefter slettes alt om lobbyen. |
+| `SONGWARS_SPIN_SECONDS` | `20` | Hvor længe et hold har til at dreje hjulet, før serveren gør det. |
 | `SONGWARS_REVEAL_SECONDS` | `10` | Hvor længe genren vises før tiden starter. |
 | `SONGWARS_GRACE_SECONDS` | `10` | Se ovenfor. |
 
@@ -166,6 +170,11 @@ Variablerne står øverst i `static/styles.css`.
   popper og bølger. Genren dukker langsomt op af tågen, uret gløder og
   blinker hurtigere til sidst, flammerne tænder og gløder, og vinderen får
   en gul kant med en svag glorie.
+- **Genrehjulet** er sort og gult, med en gul viser i toppen og små lamper
+  i kanten, der blinker, mens det drejer. Taget genrer bliver matte.
+  Rækkefølgen står ved siden af som en menu, hvor den der har tur, er
+  markeret. Hjulet drejes med CSS (`--turn`, `--spin-ms` fra `lobby.js`),
+  så reduceret bevægelse bare springer til resultatet.
 - **Baggrunden** er den tågede by: tågen driver, lagene flytter sig lidt
   med musen (parallax, kun med mus), støv svæver op, og blade og krager
   kommer og går. Et mørkt slør med svage scanlines ligger over det hele.
