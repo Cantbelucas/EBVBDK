@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{% block title %}Songwars{% endblock %}</title>
+<meta name="description" content="Ét beat, én genre, uret tikker. Lav et nummer, og lad de andre stemme med flammer.">
+<meta name="theme-color" content="#0d0a0a">
+<meta name="color-scheme" content="dark">
+{# Tokenet laeses af JS fra her - CSP'en tillader ingen inline-scripts. #}
+<meta name="csrf" content="{{ csrf_token() }}">
+<link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
+<link rel="stylesheet" href="{{ asset('styles.css') }}">
+<script src="{{ asset('common.js') }}" defer></script>
+{% block scripts %}{% endblock %}
+</head>
+<body class="{% block bodyclass %}{% endblock %}">
+<a class="skip" href="#main">Spring til indhold</a>
+
+<header class="top">
+  <a class="brand" href="{{ url_for('home') }}" aria-label="Songwars — forsiden">
+    <span class="flame flame--brand" aria-hidden="true"></span>
+    <span class="brand__word">Song<b>wars</b></span>
+  </a>
+  {% block topright %}{% endblock %}
+</header>
+
+{% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <div class="flash" role="status">
+      {% for m in messages %}<p>{{ m }}</p>{% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<main id="main" class="{% block mainclass %}wrap{% endblock %}">
+  {% block body %}{% endblock %}
+</main>
+</body>
+</html>

@@ -1,0 +1,34 @@
+# Songwars. Helt adskilt fra de andre apps: egen container, egen
+# data-mappe, egen database, egen .env.
+#
+#   Bruger -> Cloudflare -> nginx-container -> songwars:8092 (stack_web)
+#
+# nginx naar containeren ved navn over stack_web. Porten paa vaerten er
+# kun til fejlsoegning fra serveren selv (curl 127.0.0.1:8092) og er bundet
+# til 127.0.0.1, saa den ikke kan naas udefra.
+
+services:
+  songwars:
+    build: .
+    container_name: songwars
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8092:8092"
+    volumes:
+      - ./data:/data
+    networks:
+      - stack_web
+    # Haerdning. Filsystemet er skrivebeskyttet undtagen /data og /tmp.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+
+networks:
+  stack_web:
+    external: true

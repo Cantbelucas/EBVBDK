@@ -1,0 +1,10 @@
+.env
+.env.*
+data/
+__pycache__/
+*.pyc
+.git
+README.md
+DEPLOY.md
+nginx.songwars.conf.example
+docker-compose.yml

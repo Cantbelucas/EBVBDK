@@ -1,0 +1,83 @@
+# Songwars paa songwars.ebvb.dk.
+#
+# Hoerer til i ~/stack/nginx/conf.d/songwars.conf, som er mountet ind i
+# nginx-containeren paa /etc/nginx/conf.d. Efter en aendring:
+#
+#   docker exec nginx nginx -t
+#   docker exec nginx nginx -s reload
+#
+#   Bruger -> Cloudflare -> nginx-container (443) -> songwars-containeren (8092)
+#
+# ANTAGELSER - ret dem hvis de ikke passer:
+#   - Subdomaenet er songwars.ebvb.dk.
+#   - Wildcard-certifikatet (*.ebvb.dk) er det samme Cloudflare Origin-cert
+#     som ebvb.dk bruger, og ligger i /etc/ssl/cloudflare. Ret filnavnene til
+#     dem der faktisk ligger der.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name songwars.ebvb.dk;
+    return 301 https://songwars.ebvb.dk$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name songwars.ebvb.dk;
+
+    ssl_certificate     /etc/ssl/cloudflare/ebvb.dk.pem;
+    ssl_certificate_key /etc/ssl/cloudflare/ebvb.dk.key;
+
+    # Afleveringer er hoejst 50 MB og beats hoejst 95 MB (SONGWARS_MAX_*_MB),
+    # plus lidt til formularen. Cloudflare afviser selv alt over 100 MB, saa
+    # hoejere end det giver ingen mening.
+    client_max_body_size 100m;
+    client_body_timeout  120s;
+    proxy_read_timeout   120s;
+    proxy_send_timeout   120s;
+
+    location / {
+        # Dockers indbyggede DNS. Med en variabel i proxy_pass slaar nginx
+        # navnet op ved hver forespoergsel i stedet for kun ved indlaesning -
+        # ellers svarer den 502 efter hvert deploy, fordi containeren faar
+        # en ny IP. Samme fiks som i nginx.ebvb.conf.example.
+        resolver 127.0.0.11 valid=10s;
+        set $songwars_upstream songwars:8092;
+        proxy_pass http://$songwars_upstream;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Brugerens rigtige IP til rate limiting. Cloudflare saetter den.
+        proxy_set_header CF-Connecting-IP  $http_cf_connecting_ip;
+
+        # Lyd hentes med Range-forespoergsler, saa man kan spole.
+        proxy_buffering off;
+
+        # Appen saetter selv samme CSP. Den skjules her, saa der ikke
+        # sendes to.
+        proxy_hide_header Content-Security-Policy;
+    }
+
+    gzip             on;
+    gzip_vary        on;
+    gzip_min_length  512;
+    gzip_types       text/plain text/css application/javascript application/json image/svg+xml;
+
+    add_header X-Content-Type-Options "nosniff"     always;
+    add_header X-Frame-Options        "DENY"        always;
+    add_header Referrer-Policy        "same-origin" always;
+
+    # Din stramme politik, plus style-src 'self'. Uden style-src falder
+    # stylesheetet tilbage til default-src 'none' og bliver blokeret - siden
+    # ville staa helt uden styling. form-action, base-uri og frame-ancestors
+    # falder ikke tilbage til default-src og skal staa for sig.
+    add_header Content-Security-Policy
+        "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" always;
+
+    server_tokens off;
+}

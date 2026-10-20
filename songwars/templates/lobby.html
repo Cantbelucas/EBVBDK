@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% set is_owner = me.id == lobby.owner_id %}
+{% block title %}Lobby {{ lobby.code }} — Songwars{% endblock %}
+{% block mainclass %}wrap wrap--wide{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('lobby.js') }}" defer></script>
+{% endblock %}
+
+{% block topright %}
+<div class="codebox">
+  <span class="codebox__label">Kode</span>
+  <strong class="codebox__code">{{ lobby.code }}</strong>
+  <button type="button" class="btn btn--tiny" data-copy="{{ url_for('home', kode=lobby.code, _external=True) }}">
+    Kopiér link
+  </button>
+</div>
+{% endblock %}
+
+{% block body %}
+{# Alt herunder er skeletter. lobby.js henter /state hvert 2,5 sekund og
+   viser den fase der er nu - fasen bestemmes paa serveren, ikke her. #}
+<div class="game" id="game"
+     data-state-url="{{ url_for('lobby_state', code=lobby.code) }}"
+     data-owner="{{ '1' if is_owner else '0' }}"
+     data-kick-url="{{ url_for('kick', code=lobby.code) }}">
+
+  <noscript>
+    <p class="panel">Songwars kræver JavaScript — lobbyen opdateres løbende fra serveren.</p>
+  </noscript>
+
+  <section class="panel stage" id="stage" aria-labelledby="stage-title">
+    <p class="phase-pill" id="phase-pill">Henter lobbyen …</p>
+
+    {# ---------- 1. Lobby ---------- #}
+    <div class="phase" data-phase="lobby" hidden>
+      <h1 class="stage__title" id="stage-title">Venter på spillere</h1>
+      <p class="settings-line" id="settings-line"></p>
+
+      {% if is_owner %}
+        <p class="hint hint--warn" id="start-problem" hidden></p>
+        <form method="post" action="{{ url_for('start', code=lobby.code) }}" class="start">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <button class="btn btn--fire btn--big" id="start-btn" type="submit">Start runden</button>
+        </form>
+
+        <details class="settings">
+          <summary>Indstillinger</summary>
+          <form method="post" action="{{ url_for('lobby_settings', code=lobby.code) }}" class="settings__form">
+            <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+            <div class="pair">
+              <label class="field">
+                <span class="field__label">Tid (minutter)</span>
+                <input class="input" type="number" name="minutes" value="{{ lobby.minutes }}"
+                       min="{{ minutes_range[0] }}" max="{{ minutes_range[1] }}" required>
+              </label>
+              <label class="field">
+                <span class="field__label">Holdstørrelse</span>
+                <input class="input" type="number" name="team_size" value="{{ lobby.team_size }}"
+                       min="{{ team_range[0] }}" max="{{ team_range[1] }}" required>
+              </label>
+            </div>
+            <label class="field">
+              <span class="field__label">Genre</span>
+              <select class="input" name="genre">
+                <option value="">Tilfældig</option>
+                {% for g in genres %}
+                  <option value="{{ g.id }}" {% if g.id == lobby.genre_id %}selected{% endif %}>{{ g.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button class="btn btn--ghost" type="submit">Gem</button>
+          </form>
+        </details>
+      {% else %}
+        <p class="waiting" id="waiting-line">Venter på at ejeren starter runden.</p>
+      {% endif %}
+    </div>
+
+    {# ---------- 2. Reveal ---------- #}
+    <div class="phase reveal" data-phase="reveal" hidden>
+      <p class="kicker">Genren er</p>
+      <h1 class="reveal__genre" id="reveal-genre"></h1>
+      <p class="reveal__beat">Beat: <strong id="reveal-beat"></strong></p>
+      <div class="teamcard" id="reveal-team"></div>
+      <p class="reveal__go">Tiden starter om <strong id="reveal-left">—</strong></p>
+    </div>
+
+    {# ---------- 3. Lav / aflever ---------- #}
+    <div class="phase" data-phase="make" hidden>
+      <div class="timer" id="timer" role="timer" aria-label="Tid tilbage">
+        <span class="timer__digits" id="timer-text">--:--</span>
+        <span class="timer__label" id="timer-label">tilbage</span>
+      </div>
+      <p class="sr" id="timer-live" aria-live="polite"></p>
+
+      <div class="beatcard">
+        <p class="kicker" id="make-genre"></p>
+        <h2 class="beatcard__title" id="make-beat"></h2>
+        <audio class="player" id="beat-audio" controls preload="none"></audio>
+        <a class="btn btn--ghost" id="beat-dl" href="#">Hent beatet</a>
+      </div>
+
+      <div class="teamcard" id="make-team"></div>
+
+      <form class="upload" id="upload-form" method="post" enctype="multipart/form-data"
+            action="{{ url_for('submit', code=lobby.code) }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <label class="drop" id="drop">
+          <input type="file" name="track" id="track-input" required
+                 accept=".mp3,.wav,audio/mpeg,audio/wav,audio/x-wav">
+          <span class="drop__main" id="drop-main">Vælg dit nummer</span>
+          <span class="drop__sub">mp3 eller wav · højst {{ max_upload // (1024 * 1024) }} MB</span>
+        </label>
+        <button class="btn btn--fire btn--wide" id="upload-btn" type="submit">Aflever</button>
+        <div class="meter" id="upload-meter" hidden aria-hidden="true"><span class="meter__fill"></span></div>
+        <p class="upload__msg" id="upload-msg" role="status"></p>
+      </form>
+
+      <div class="mine" id="my-sub" hidden>
+        <p class="mine__head" id="my-sub-text"></p>
+        <audio class="player" id="my-sub-audio" controls preload="none"></audio>
+        <p class="hint">Et nyt upload fra nogen på holdet erstatter det her.</p>
+      </div>
+
+      <p class="delivered" id="delivered"></p>
+
+      {% if is_owner %}
+        <form method="post" action="{{ url_for('finish_phase', code=lobby.code) }}" class="owner-act"
+              data-confirm="Luk afleveringen nu? Hold der ikke har afleveret, er ude af runden.">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <button class="btn btn--ghost btn--small" type="submit">Luk afleveringen nu</button>
+        </form>
+      {% endif %}
+    </div>
+
+    {# ---------- 4. Afstemning ---------- #}
+    <div class="phase" data-phase="vote" hidden>
+      <h1 class="stage__title">Afstemning</h1>
+      <p class="lead">Lyt til hvert nummer og giv 1–5 flammer. Ingen ved hvem der har lavet hvad, før resultatet.</p>
+      <p class="progress-line" id="vote-progress"></p>
+      <ol class="tracks" id="vote-tracks"></ol>
+
+      {% if is_owner %}
+        <form method="post" action="{{ url_for('finish_phase', code=lobby.code) }}" class="owner-act"
+              data-confirm="Vis resultatet nu? Stemmer der mangler, tæller ikke med.">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <button class="btn btn--ghost btn--small" type="submit">Afslut afstemningen</button>
+        </form>
+      {% endif %}
+    </div>
+
+    {# ---------- 5. Resultat ---------- #}
+    <div class="phase" data-phase="result" hidden>
+      <h1 class="stage__title">Resultat</h1>
+      <p class="lead" id="result-beat"></p>
+      <ol class="ranking" id="ranking"></ol>
+      <div class="missing" id="missing" hidden></div>
+      <a class="btn btn--ghost" href="{{ url_for('home') }}">Ny lobby</a>
+    </div>
+
+    {# ---------- Udloebet ---------- #}
+    <div class="phase" data-phase="closed" hidden>
+      <span class="flame flame--big flame--ash" aria-hidden="true"></span>
+      <h1 class="stage__title">Lobbyen er udløbet</h1>
+      <p class="lead">Den nåede ikke at blive færdig inden for et døgn. Lav en ny, og send koden rundt.</p>
+      <a class="btn btn--fire" href="{{ url_for('home') }}">Ny lobby</a>
+    </div>
+  </section>
+
+  <aside class="panel crew" aria-labelledby="crew-title">
+    <h2 class="crew__title" id="crew-title">Spillere <span class="count" id="player-count"></span></h2>
+    <ul class="crew__list" id="player-list"></ul>
+    <form method="post" action="{{ url_for('leave', code=lobby.code) }}" id="leave-form"
+          data-confirm="Forlad lobbyen?">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button class="btn btn--ghost btn--small" type="submit">Forlad lobbyen</button>
+    </form>
+  </aside>
+</div>
+{% endblock %}

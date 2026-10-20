@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — Songwars{% endblock %}
+
+{% block body %}
+<section class="panel notice-page">
+  <span class="flame flame--big flame--ash" aria-hidden="true"></span>
+  <h1 class="notice-page__title">{{ title }}</h1>
+  <p>{{ message }}</p>
+  <a class="btn btn--ghost" href="{{ url_for('home') }}">Til forsiden</a>
+</section>
+{% endblock %}

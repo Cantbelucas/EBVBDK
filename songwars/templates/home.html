@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block bodyclass %}is-home{% endblock %}
+
+{% block body %}
+<section class="hero">
+  <h1 class="hero__title">Song<b>wars</b></h1>
+  <p class="hero__tag">Ét beat. Én genre. Uret tikker.<br>Bedste nummer vinder flammerne.</p>
+</section>
+
+<div class="doors">
+  <form class="panel door" method="post" action="{{ url_for('join') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <h2 class="door__title">Join en lobby</h2>
+
+    <label class="field">
+      <span class="field__label">Lobbykode</span>
+      <input class="input input--code" name="code" value="{{ code }}" required
+             maxlength="{{ code_len }}" minlength="{{ code_len }}"
+             autocomplete="off" autocapitalize="characters" spellcheck="false"
+             inputmode="text" placeholder="K7XQ2"
+             {% if not code %}autofocus{% endif %}>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Dit kaldenavn</span>
+      <input class="input" name="name" required maxlength="{{ name_max }}"
+             autocomplete="nickname" placeholder="Det de andre ser"
+             {% if code %}autofocus{% endif %}>
+    </label>
+
+    <button class="btn btn--fire btn--wide" type="submit">Join</button>
+  </form>
+
+  <form class="panel door" method="post" action="{{ url_for('create_lobby') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <h2 class="door__title">Opret en lobby</h2>
+
+    <label class="field">
+      <span class="field__label">Dit kaldenavn</span>
+      <input class="input" name="name" required maxlength="{{ name_max }}"
+             autocomplete="nickname" placeholder="Du bliver lobbyens ejer">
+    </label>
+
+    <div class="pair">
+      <label class="field">
+        <span class="field__label">Tid (minutter)</span>
+        <input class="input" type="number" name="minutes" value="30"
+               min="{{ minutes_range[0] }}" max="{{ minutes_range[1] }}" required>
+      </label>
+      <label class="field">
+        <span class="field__label">Holdstørrelse</span>
+        <input class="input" type="number" name="team_size" value="1"
+               min="{{ team_range[0] }}" max="{{ team_range[1] }}" required>
+      </label>
+    </div>
+    <p class="hint">1 = solo. Holdene trækkes tilfældigt, når runden starter.</p>
+
+    <label class="field">
+      <span class="field__label">Genre</span>
+      <select class="input" name="genre">
+        <option value="">Tilfældig</option>
+        {% for g in genres %}
+          <option value="{{ g.id }}">{{ g.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if not genres %}
+      <p class="hint hint--warn">Der er ingen beats endnu, så runden kan ikke starte, før en admin har lagt nogle op.</p>
+    {% endif %}
+
+    <button class="btn btn--ghost btn--wide" type="submit">Opret lobby</button>
+  </form>
+</div>
+
+<ol class="how" aria-label="Sådan spiller man">
+  <li><b>Join</b> med koden fra ejeren af lobbyen.</li>
+  <li><b>Genren og beatet</b> trækkes, når runden starter. Hent beatet.</li>
+  <li><b>Lav et nummer</b> ovenpå i dit eget program, og aflever før tiden er gået.</li>
+  <li><b>Stem</b> med 1–5 flammer på de andres numre. Navnene kommer først frem til sidst.</li>
+</ol>
+
+<p class="foot"><a href="{{ url_for('admin') }}">Admin</a></p>
+{% endblock %}
