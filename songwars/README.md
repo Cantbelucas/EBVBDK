@@ -17,10 +17,11 @@ templates/
   admin.html, admin_login.html
   error.html
 static/
-  styles.css                al styling
-  common.js                 data-confirm, data-busy, kopiér-knap
+  styles.css                al styling - designsystemet staar som variabler oeverst
+  common.js                 data-confirm, data-busy, kopiér-knap, baggrundsscenen
   lobby.js                  polling af /state, nedtælling, upload, afstemning
-  flame.svg                 flammen - bruges som CSS-maske
+  flame.svg                 flammen - bruges som CSS-maske (wordmark, stemmer)
+  fonts/                    Poppins (titler) og Inter (tekst) som woff2, selvhostet (OFL)
 Dockerfile, docker-compose.yml, .env.example
 nginx.songwars.conf.example
 data/                       ← databasen og filerne. Ikke i git.
@@ -133,13 +134,45 @@ starte og siger hvorfor.
 - **CSRF-token** på alle POST: et skjult felt i formularerne, en
   `X-CSRF-Token`-header fra JS. Cookien er desuden `SameSite=Lax`.
 - **CSP**: appen sender selv samme stramme politik som nginx. Ingen
-  inline-scripts, ingen `style=""`, ingen `on…=`, intet udefra — heller
-  ikke fonte. JS sætter kun styling via CSSOM (`el.style.setProperty`),
-  hvilket CSP tillader.
+  inline-scripts, ingen `style=""`, ingen `on…=`, intet udefra. Fontene
+  ligger i `static/fonts/`, så politikken har `font-src 'self'`. JS sætter
+  kun styling via CSSOM (`el.style.setProperty`), hvilket CSP tillader.
 - Al tekst fra spillere sættes med `textContent` — aldrig som HTML.
 - Lobbykoden er 5 tegn fra 31 tegn uden 0/O og 1/I/L: 28 millioner koder.
 - Containeren kører som uid 10001 med skrivebeskyttet filsystem, uden
   capabilities og med `no-new-privileges`. Kun `/data` er skrivbar.
+
+## Design
+
+En spilmenu fra omkring 2002 lagt over en tåget by en efterårsmorgen.
+Variablerne står øverst i `static/styles.css`.
+
+- **Wordmarket** "songwars" og **underteksterne** er de eneste højlydte
+  ting: **Poppins** i halvfed, gul (`--accent`), små bogstaver, en tynd
+  mørk kant (`--sub-shadow`) og en svag skråning (`--slant`). Genren i
+  reveal har samme stil, bare i orange.
+- **Alt andet er roligt og tyndt**: overskrifter i **Inter** med en tynd
+  linje under, labels i små store bogstaver med luft imellem, og uret i
+  tynd Inter.
+- **Panelerne** er halvgennemsigtige med en svag lodret gradient og en
+  dobbelt kant (tynd lys udenom, mørk indenfor), så byen anes bagved.
+  Hvert panel har en tynd farvet linje øverst. Felter, lobbykoden og
+  numrene ligger nedsænket i panelerne.
+- **Knapperne** er glansede, med den skarpe lyskant midt på, som dengang.
+  De lyser svagt op ved hover og trykkes en pixel ned. Deaktiverede knapper
+  er flade og matte, og årsagen står lige ved siden af.
+- **Bevægelsen er stille**: ting kommer frem af tågen (de toner frem fra
+  uskarpe til skarpe) i stedet for at hoppe. Kun wordmarket på forsiden
+  popper og bølger. Genren dukker langsomt op af tågen, uret gløder og
+  blinker hurtigere til sidst, flammerne tænder og gløder, og vinderen får
+  en gul kant med en svag glorie.
+- **Baggrunden** er den tågede by: tågen driver, lagene flytter sig lidt
+  med musen (parallax, kun med mus), støv svæver op, og blade og krager
+  kommer og går. Et mørkt slør med svage scanlines ligger over det hele.
+- **Reduceret bevægelse**: intet bevæger sig, men stilen er den samme.
+  Blade, støv, krager og parallax laves slet ikke.
+- **Fonte** er selvhostede i `static/fonts/` (Poppins og Inter, begge
+  SIL OFL 1.1 — licenserne ligger ved siden af).
 
 ## Oprydning
 

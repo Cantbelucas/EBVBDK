@@ -2,14 +2,14 @@
 {% block title %}Admin — Songwars{% endblock %}
 
 {% block body %}
-<form class="panel narrow" method="post" action="{{ url_for('admin_login') }}">
+<form class="card narrow" method="post" action="{{ url_for('admin_login') }}">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-  <h1 class="stage__title">Admin</h1>
-  <p class="lead">Til genrer og beats. Spillere har ikke brug for at logge ind.</p>
+  <h1 class="stage__title" data-wave>Admin</h1>
+  <p class="muted">Til genrer og beats. Spillere har ikke brug for at logge ind.</p>
   <label class="field">
     <span class="field__label">Adgangskode</span>
     <input class="input" type="password" name="password" required autocomplete="current-password" autofocus>
   </label>
-  <button class="btn btn--fire btn--wide" type="submit">Log ind</button>
+  <button class="btn btn--go btn--wide" type="submit">Log ind</button>
 </form>
 {% endblock %}

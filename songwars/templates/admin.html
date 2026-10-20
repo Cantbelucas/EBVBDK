@@ -5,27 +5,27 @@
 {% block topright %}
 <form method="post" action="{{ url_for('admin_logout') }}">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-  <button class="btn btn--tiny" type="submit">Log ud</button>
+  <button class="btn" type="submit">Log ud</button>
 </form>
 {% endblock %}
 
 {% block body %}
-<h1 class="page-title">Beats og genrer</h1>
-<p class="lead">
+<h1 class="page-title" data-wave>Beats og genrer</h1>
+<p class="muted">
   {{ stats.lobbies }} {{ 'lobby' if stats.lobbies == 1 else 'lobbyer' }} i gang ·
   {{ stats.subs[0] }} afleveringer på disken ({{ (stats.subs[1] / 1048576) | round | int }} MB).
   Afleveringer slettes efter {{ keep_days }} dage.
 </p>
 
 <div class="admin">
-  <section class="panel" aria-labelledby="genres-title">
-    <h2 class="panel__title" id="genres-title">Genrer</h2>
+  <section class="card" aria-labelledby="genres-title">
+    <h2 class="card__title" id="genres-title">Genrer</h2>
 
     <form class="inline-form" method="post" action="{{ url_for('admin_genre_create') }}">
       <input type="hidden" name="csrf" value="{{ csrf_token() }}">
       <label class="sr" for="new-genre">Ny genre</label>
-      <input class="input" id="new-genre" name="name" maxlength="40" required placeholder="F.eks. Drill">
-      <button class="btn btn--ghost" type="submit">Tilføj</button>
+      <input class="input" id="new-genre" name="name" maxlength="40" required>
+      <button class="btn" type="submit">Tilføj</button>
     </form>
 
     {% if genres %}
@@ -38,26 +38,26 @@
               <label class="sr" for="genre-{{ g.id }}">Navn</label>
               <input class="input input--quiet" id="genre-{{ g.id }}" name="name"
                      value="{{ g.name }}" maxlength="40" required>
-              <button class="btn btn--tiny" type="submit">Omdøb</button>
+              <button class="btn" type="submit">Omdøb</button>
             </form>
             <span class="rows__meta">{{ g.beats }} {{ 'beat' if g.beats == 1 else 'beats' }}</span>
             {% if not g.beats %}
               <form method="post" action="{{ url_for('admin_genre_delete', gid=g.id) }}"
                     data-confirm="Slet genren {{ g.name }}?">
                 <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-                <button class="btn btn--tiny btn--danger" type="submit">Slet</button>
+                <button class="btn btn--danger" type="submit">Slet</button>
               </form>
             {% endif %}
           </li>
         {% endfor %}
       </ul>
     {% else %}
-      <p class="hint">Ingen genrer endnu. Start med at lave én.</p>
+      <p class="empty">Ingen genrer endnu. Start med at lave én.</p>
     {% endif %}
   </section>
 
-  <section class="panel" aria-labelledby="beat-up-title">
-    <h2 class="panel__title" id="beat-up-title">Læg et beat op</h2>
+  <section class="card" aria-labelledby="beat-up-title">
+    <h2 class="card__title" id="beat-up-title">Læg et beat op</h2>
     {% if genres %}
       <form method="post" action="{{ url_for('admin_beat_create') }}" enctype="multipart/form-data"
             data-busy="Sender beatet …">
@@ -75,18 +75,18 @@
         <label class="field">
           <span class="field__label">Fil</span>
           <input class="input" type="file" name="file" required accept=".mp3,.wav,audio/mpeg,audio/wav">
-          <span class="hint">mp3 eller wav, højst {{ max_beat // 1048576 }} MB. Indholdet tjekkes — ikke kun endelsen.</span>
+          <span class="muted">mp3 eller wav, højst {{ max_beat // 1048576 }} MB. Indholdet tjekkes — ikke kun endelsen.</span>
         </label>
-        <button class="btn btn--fire" type="submit">Læg op</button>
+        <button class="btn btn--go" type="submit">Læg op</button>
       </form>
     {% else %}
-      <p class="hint">Lav en genre først.</p>
+      <p class="muted">Lav en genre først.</p>
     {% endif %}
   </section>
 </div>
 
-<section class="panel" aria-labelledby="beats-title">
-  <h2 class="panel__title" id="beats-title">Beats ({{ beats | length }})</h2>
+<section class="card" aria-labelledby="beats-title">
+  <h2 class="card__title" id="beats-title">Beats ({{ beats | length }})</h2>
   {% if beats %}
     <ul class="beats">
       {% for b in beats %}
@@ -99,13 +99,13 @@
           <form method="post" action="{{ url_for('admin_beat_delete', bid=b.id) }}"
                 data-confirm="Slet {{ b.title }}? Filen bliver slettet.">
             <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-            <button class="btn btn--tiny btn--danger" type="submit">Slet</button>
+            <button class="btn btn--danger" type="submit">Slet</button>
           </form>
         </li>
       {% endfor %}
     </ul>
   {% else %}
-    <p class="hint">Ingen beats endnu. Der skal være mindst ét, før en runde kan starte.</p>
+    <p class="empty">Ingen beats endnu. Der skal være mindst ét, før en runde kan starte.</p>
   {% endif %}
 </section>
 {% endblock %}

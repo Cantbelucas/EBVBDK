@@ -129,7 +129,7 @@ CLEANUP_EVERY = 600
 # Samme politik som nginx. Saetter appen den ogsaa, gaelder den selv hvis
 # server-blokken mangler en linje - og den kan testes lokalt.
 CSP = ("default-src 'none'; script-src 'self'; connect-src 'self'; "
-       "img-src 'self' data:; media-src 'self'; style-src 'self'; "
+       "img-src 'self' data:; media-src 'self'; style-src 'self'; font-src 'self'; "
        "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 
 

@@ -123,7 +123,10 @@ ssh lucas@dinserver "cp /opt/songwars/nginx.songwars.conf.example ~/stack/nginx/
 
 To ting i blokken der er værd at vide:
 
-- **CSP'en har `style-src 'self'`.** Din politik står der ellers som den er.
+- **CSP'en har `style-src 'self'` og `font-src 'self'`.** Din politik står
+  der ellers som den er. `font-src` skal med, fordi skrifterne er
+  selvhostede i `static/fonts/` — uden den blokerer browseren dem, og siden
+  falder tilbage til systemets skrift.
   Uden `style-src` falder stylesheets tilbage til `default-src 'none'` og
   bliver blokeret — siden ville stå helt uden styling. `form-action`,
   `base-uri` og `frame-ancestors` falder ikke tilbage til `default-src` og
@@ -144,9 +147,32 @@ for EBVB).
 2. Opret en lobby på telefonen, join fra computeren med koden.
 3. Med holdstørrelse 1 kan to spillere starte en runde.
 
-Ser siden ud uden styling, mangler `style-src` i CSP'en (punkt 6). Kan
+Ser siden ud uden styling, mangler `style-src` i CSP'en (punkt 6). Står
+den i en anden skrift end Inter, mangler `font-src`. Kan
 man ikke logge ind og ryger tilbage til forsiden hver gang, kører siden
 over http et sted — cookien er `Secure`.
+
+## Opdatering: selvhostede fonte
+
+Skrifterne — Poppins til titlerne og Inter til teksten — ligger i
+`static/fonts/` og kræver `font-src 'self'` i CSP'en. Appen sender den
+selv, og den står i `nginx.songwars.conf.example`. **Den kørende `songwars.conf` på serveren har den ikke**, hvis
+den blev kopieret før — ret linjen så den svarer til
+`nginx.songwars.conf.example`, og genindlæs:
+
+```bash
+ssh lucas@dinserver "grep -c font-src ~/stack/nginx/conf.d/songwars.conf"
+```
+
+Svarer den `0`, mangler den. Ret den i hånden, og:
+
+```bash
+ssh lucas@dinserver "docker exec nginx nginx -t && docker exec nginx nginx -s reload"
+```
+
+Siden virker uden — men titlerne mister undertekst-skriften og står i
+systemets skrift i stedet for Poppins, og så forsvinder meget af
+udseendet.
 
 ## Deploy af opdateringer
 

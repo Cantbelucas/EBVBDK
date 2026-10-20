@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>{% block title %}Songwars{% endblock %}</title>
-<meta name="description" content="Ét beat, én genre, uret tikker. Lav et nummer, og lad de andre stemme med flammer.">
-<meta name="theme-color" content="#0d0a0a">
+<meta name="description" content="Ét beat, én genre, et ur der tæller ned. Lav et nummer, og lad de andre give flammer.">
+<meta name="theme-color" content="#8f8b8a">
 <meta name="color-scheme" content="dark">
 {# Tokenet laeses af JS fra her - CSP'en tillader ingen inline-scripts. #}
 <meta name="csrf" content="{{ csrf_token() }}">
@@ -15,12 +15,68 @@
 {% block scripts %}{% endblock %}
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
+
+{# Scenen bag det hele: en taaget efteraarsmorgen. Rent pynt - skjult for
+   skaermlaesere. Traeet tegnes af common.js, bladene ogsaa. #}
+<div class="scene" aria-hidden="true">
+  <div class="scene__sky"></div>
+  <svg class="scene__town" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMax slice">
+    <defs>
+      <pattern id="win-a" width="64" height="76" patternUnits="userSpaceOnUse">
+        <rect x="14" y="16" width="30" height="44" class="win"/>
+        <rect x="14" y="16" width="30" height="5" class="win-top"/>
+      </pattern>
+      <pattern id="win-b" width="72" height="84" patternUnits="userSpaceOnUse">
+        <rect x="18" y="18" width="34" height="48" class="win"/>
+      </pattern>
+      <radialGradient id="lamp-glow">
+        <stop offset="0" stop-color="#fff2c4" stop-opacity=".95"/>
+        <stop offset=".25" stop-color="#ffe2a0" stop-opacity=".45"/>
+        <stop offset="1" stop-color="#ffd890" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+
+    <g class="bld bld--far">
+      <rect x="560" y="470" width="420" height="300" class="wall"/>
+      <rect x="560" y="470" width="420" height="300" fill="url(#win-b)" opacity=".5"/>
+    </g>
+    <g class="bld bld--left">
+      <rect x="40" y="330" width="600" height="440" class="wall"/>
+      <rect x="28" y="318" width="624" height="18" class="cornice"/>
+      <rect x="40" y="350" width="600" height="420" fill="url(#win-a)"/>
+      <rect x="168" y="502" width="30" height="44" class="win win--lit"/>
+      <rect x="424" y="654" width="30" height="44" class="win win--lit"/>
+    </g>
+    <g class="bld bld--right">
+      <rect x="920" y="280" width="640" height="490" class="wall"/>
+      <rect x="908" y="268" width="664" height="18" class="cornice"/>
+      <rect x="920" y="300" width="640" height="470" fill="url(#win-b)"/>
+      <rect x="1514" y="318" width="34" height="48" class="win win--lit"/>
+    </g>
+
+    <g class="lamp">
+      <circle cx="1268" cy="520" r="150" fill="url(#lamp-glow)" class="lamp__glow"/>
+      <rect x="1263" y="530" width="10" height="330" class="lamp__post"/>
+      <rect x="1250" y="500" width="36" height="34" rx="4" class="lamp__head"/>
+      <rect x="1256" y="510" width="24" height="20" class="lamp__bulb"/>
+    </g>
+  </svg>
+  <svg class="scene__tree" id="scene-tree" viewBox="0 0 600 700" preserveAspectRatio="xMidYMax meet"></svg>
+  <div class="fog fog--1"></div>
+  <div class="fog fog--2"></div>
+  <div class="scene__ground"></div>
+  <div class="fog fog--low"></div>
+  <div class="leaves" id="leaves"></div>
+  <div class="scene__grain"></div>
+</div>
+
+<div class="letterbox" aria-hidden="true"><span></span><span></span></div>
+
 <a class="skip" href="#main">Spring til indhold</a>
 
 <header class="top">
-  <a class="brand" href="{{ url_for('home') }}" aria-label="Songwars — forsiden">
-    <span class="flame flame--brand" aria-hidden="true"></span>
-    <span class="brand__word">Song<b>wars</b></span>
+  <a class="wordmark" href="{{ url_for('home') }}" aria-label="Songwars — forsiden">
+    <span class="flame" aria-hidden="true"></span><span>songwars</span>
   </a>
   {% block topright %}{% endblock %}
 </header>
@@ -36,5 +92,8 @@
 <main id="main" class="{% block mainclass %}wrap{% endblock %}">
   {% block body %}{% endblock %}
 </main>
+
+{# Undertekster. Begivenheder i lobbyen vises her, som i en cutscene. #}
+<p class="caption" id="caption" role="status" aria-live="polite"></p>
 </body>
 </html>

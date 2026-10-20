@@ -72,12 +72,14 @@ server {
     add_header X-Frame-Options        "DENY"        always;
     add_header Referrer-Policy        "same-origin" always;
 
-    # Din stramme politik, plus style-src 'self'. Uden style-src falder
-    # stylesheetet tilbage til default-src 'none' og bliver blokeret - siden
-    # ville staa helt uden styling. form-action, base-uri og frame-ancestors
-    # falder ikke tilbage til default-src og skal staa for sig.
+    # Din stramme politik, plus style-src 'self' og font-src 'self'. Uden
+    # style-src falder stylesheetet tilbage til default-src 'none' og bliver
+    # blokeret. Uden font-src gaar det samme ud over de selvhostede fonte i
+    # static/fonts/ - siden falder tilbage til systemets skrift. form-action,
+    # base-uri og frame-ancestors falder ikke tilbage til default-src og skal
+    # staa for sig.
     add_header Content-Security-Policy
-        "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" always;
+        "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" always;
 
     server_tokens off;
 }
