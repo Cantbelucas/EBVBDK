@@ -94,6 +94,15 @@ SPIN_MS = 5800             # hjulet drejer saa laenge i klienten
 SPIN_REST = 2.2            # ... og staar stille saa laenge, foer naeste tur
 SPIN_INTRO = 3             # raekkefoelgen vises, foer den foerste tur
 
+# Avatarer: en emoji og en farve, valgt under "Tilpas" paa forsiden. Kun
+# dem her godtages - saa er der ingen fri tekst at passe paa.
+AVATARS = ("🔥", "🎧", "🎹", "🥁", "🎸", "🎤", "🎛️", "📻",
+           "🦊", "🐺", "🦉", "👾", "🌙", "⚡", "🍂", "💿")
+COLORS = {"gul": "#f4d43a", "orange": "#e3a04c", "roed": "#e47b62", "groen": "#a3c48f",
+          "blaa": "#7fa8d8", "lilla": "#b590d6", "graa": "#a8a196"}
+COLOR_NAMES = {"gul": "Gul", "orange": "Orange", "roed": "Rød", "groen": "Grøn",
+               "blaa": "Blå", "lilla": "Lilla", "graa": "Grå"}
+
 MAX_PLAYERS = 40
 MINUTES_RANGE = (1, 180)
 TEAM_RANGE = (1, 10)
@@ -175,6 +184,13 @@ def clock(seconds):
     if minutes >= 60:
         return "{0}:{1:02d}:{2:02d}".format(minutes // 60, minutes % 60, secs)
     return "{0}:{1:02d}".format(minutes, secs)
+
+
+def read_avatar(form):
+    """(emoji, farve) fra en formular - eller None for det der ikke er gyldigt."""
+    avatar = (form.get("avatar") or "").strip()
+    color = (form.get("color") or "").strip()
+    return (avatar if avatar in AVATARS else None), (color if color in COLORS else None)
 
 
 def client_ip():

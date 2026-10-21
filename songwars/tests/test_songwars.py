@@ -179,7 +179,8 @@ check("genre med beats kan ikke slettes", "har beats" in " ".join(flashes(adm)))
 
 # ---------- opret og join ----------
 owner = client()
-r = post(owner, "/ny", {"name": "Lucas", "minutes": "5", "team_size": "2", "genre": ""})
+r = post(owner, "/ny", {"name": "Lucas", "minutes": "5", "team_size": "2", "genre": "",
+                        "avatar": "🦊", "color": "blaa"})
 code = r.headers["Location"].rsplit("/", 1)[-1]
 check("lobby oprettet med 5-tegns kode", r.status_code == 302 and re.fullmatch(r"[A-Z2-9]{5}", code), code)
 s, st = state(owner, code)
@@ -189,9 +190,29 @@ check("start blokeret: for faa spillere", "mindst 4 spillere" in (st["start_prob
 players = {"Lucas": owner}
 for name in ("Fjolli", "Cc", "Mads", "Sofie"):
     cl = client()
-    r = post(cl, "/join", {"code": code.lower(), "name": name})
+    extra = {"avatar": "<script>", "color": "url(x)"} if name == "Fjolli" else {"avatar": "🎧", "color": "groen"}
+    r = post(cl, "/join", dict({"code": code.lower(), "name": name}, **extra))
     players[name] = cl
 check("join med kode i smaa bogstaver", state(players["Sofie"], code)[0] == 200)
+faces = {p_["name"]: (p_["avatar"], p_["color"]) for p_ in state(owner, code)[1]["players"]}
+check("avatar og farve gemmes - kun dem fra listen", faces["Lucas"] == ("🦊", "blaa")
+      and faces["Cc"] == ("🎧", "groen") and faces["Fjolli"] == (None, None), faces)
+
+# Storskaerm: kobles paa med koden, foer runden starter.
+scr = client()
+r = post(scr, "/skaerm", {"code": code})
+check("storskaerm kobles paa foer start", r.status_code == 302 and r.headers["Location"].endswith("/l/%s/skaerm" % code))
+r = scr.get("/l/%s/skaerm" % code)
+check("storskaermens side svarer", r.status_code == 200 and "is-screen" in r.get_data(as_text=True)
+      and "upload-form" not in r.get_data(as_text=True) and "start-btn" not in r.get_data(as_text=True))
+r = scr.get("/l/%s/skaerm/state" % code)
+check("storskaermen faar /state uden at vaere spiller", r.status_code == 200 and r.get_json()["screen"]
+      and r.get_json()["me"]["name"] == "Storskærm" and not r.get_json()["me"]["owner"])
+check("storskaermen er ikke med paa spillerlisten", len(r.get_json()["players"]) == 5)
+check("storskaermen kan ikke spille", scr.get("/l/%s/state" % code).status_code == 403
+      and post(scr, "/l/%s/start" % code).status_code == 403)
+outsider = client()
+check("en tilfaeldig kan ikke se skaermens state", outsider.get("/l/%s/skaerm/state" % code).status_code == 403)
 dup = client()
 post(dup, "/join", {"code": code, "name": "fjolli"})
 check("navnet er unikt i lobbyen", "er taget" in " ".join(flashes(dup)))
@@ -361,6 +382,16 @@ r = upload(players[c], wav24, "lige-i-tide.wav")
 check("upload i den ekstra tid (inkl. graceperioden) godtages", r.status_code == 200, r.get_json())
 s, st = state(players[c], code)
 check("alle hold har afleveret -> afstemning med det samme", st["phase"] == "vote", st["phase"])
+late_scr = client()
+r = post(late_scr, "/skaerm", {"code": code})
+check("storskaerm kan ikke kobles paa efter start", "allerede gået i gang" in " ".join(flashes(late_scr)))
+r = players[a].get("/l/%s/skaerm" % code)
+check("en spiller kan aabne storskaermen bagefter", r.status_code == 200)
+st_scr = scr.get("/l/%s/skaerm/state" % code).get_json()
+r = scr.get(st_scr["vote"]["tracks"][0]["url"])
+check("storskaermen kan afspille numrene under afstemningen", r.status_code == 200
+      and st_scr["vote"]["my_need"] == 0 and not any(t_["mine"] for t_ in st_scr["vote"]["tracks"]))
+check("en udenforstaaende kan ikke afspille numrene", nope.get(st_scr["vote"]["tracks"][0]["url"]).status_code == 403)
 r = upload(players[c], wav, "for-sent.wav")
 check("upload efter fristen afvises", r.status_code == 409 and "lukket" in r.get_json()["error"], r.get_json())
 
@@ -402,6 +433,12 @@ check("resultat naar alle har stemt", st["phase"] == "result", st["phase"])
 rk = st["result"]["ranking"]
 check("rangliste efter gennemsnit", [r["average"] for r in rk] == [3.5, 3.5] and [r["place"] for r in rk] == [1, 1], rk)
 check("navne afsloeres i resultatet", sorted(rk[0]["members"] + rk[1]["members"]) == sorted([a, b, c, d]))
+stats = {s_["label"]: s_["text"] for s_ in st["result"]["stats"]}
+check("rundens tal: hårdeste dommer og gavmildeste", stats.get("Hårdeste dommer") == d + " gav i snit 2,0"
+      and stats.get("Gavmildeste") == c + " gav i snit 5,0", stats)
+check("rundens tal: mest uenige", stats.get("Mest uenige") == "Hold %d fik både 2 og 5 flammer" % t1, stats)
+check("rundens tal: først færdig og sidst ind", "Først færdig" in stats and "afleverede" in stats["Først færdig"]
+      and any(k in stats for k in ("Lige på stregen", "Sidst ind")), stats)
 r = vote(players[a], theirs_id, 5)
 check("kan ikke stemme efter resultatet", r.status_code == 409)
 
@@ -448,6 +485,11 @@ conn.execute("DELETE FROM lobbies WHERE id = ?", (lid_x,)); conn.commit(); conn.
 
 ny = client(); post(ny, "/join", {"code": code_r2, "name": "Ny"})
 check("en ny spiller kan joine runde 2 med koden", any(p_["name"] == "Ny" for p_ in state(ny, code_r2)[1]["players"]))
+check("avataren foelger med i den nye runde", {p_["name"]: p_["avatar"] for p_ in state(owner, code_r2)[1]["players"]}["Lucas"] == "🦊")
+r = scr.get("/l/%s/skaerm/state" % code_r2)
+check("storskaermen foelger med i den nye runde", r.status_code == 200 and r.get_json()["round_no"] == 2)
+check("skaermens 'naeste runde' peger paa skaermen", scr.get("/l/%s/skaerm/state" % code).get_json()["next"]["url"]
+      == "/l/%s/skaerm" % code_r2)
 
 # ---------- solo, tom runde og ejer der lukker ----------
 o2 = client()
@@ -471,7 +513,10 @@ post(p2, "/l/%s/afslut" % code2)
 s, st = state(p3, code2)
 check("ejer stopper tiden tidligt -> ekstra tid", st["phase"] == "extra"
       and st["round"]["closes"] == core.ms(clock[0] + core.EXTRA_SECONDS), st.get("round"))
+deadline_before = database.connect().execute("SELECT deadline FROM lobbies WHERE code=?", (code2,)).fetchone()[0]
 post(p2, "/l/%s/afslut" % code2)
+check("at lukke den ekstra tid flytter ikke fristen (rundens tal bruger den)", database.connect().execute(
+      "SELECT deadline FROM lobbies WHERE code=?", (code2,)).fetchone()[0] == deadline_before)
 s, st = state(p3, code2)
 check("ejer lukker den ekstra tid; ingen afleveringer -> direkte resultat", st["phase"] == "result"
       and st["result"]["ranking"] == [] and len(st["result"]["missing"]) == 2, st.get("result"))
@@ -500,6 +545,55 @@ clock[0] = row5[1] + 1
 s, st = state(p5, code5)
 check("afstemningen lukker af sig selv, selvom ingen har stemt", st["phase"] == "result", st["phase"])
 
+# ---------- singleplayer ----------
+solo = client()
+r = post(solo, "/alene", {"name": "Ene", "minutes": "5", "avatar": "🌙", "color": "lilla"})
+code_s = r.headers["Location"].rsplit("/", 1)[-1]
+s, st = state(solo, code_s)
+check("spil alene: hjulet gaar i gang med det samme", s == 200 and st["phase"] == "spin" and st["practice"]
+      and len(st["spin"]["order"]) == 1 and st["players"][0]["avatar"] == "🌙", st.get("phase"))
+clock[0] += core.SPIN_INTRO
+r = solo.post("/l/%s/spin" % code_s, headers={"X-CSRF-Token": solo.token, "X-Requested-With": "fetch"})
+check("spil alene: man drejer selv", r.status_code == 200, r.get_json())
+clock[0] += core.SPIN_MS / 1000 + core.SPIN_REST + core.REVEAL_SECONDS + 1
+s, st = state(solo, code_s)
+check("spil alene: egen genre og beat, saa lav-fasen", st["phase"] == "make" and st["round"]["genre"]
+      and st["round"]["beat_url"], st.get("phase"))
+clock[0] = database.connect().execute("SELECT make_at FROM lobbies WHERE code=?", (code_s,)).fetchone()[0] + 90
+r = solo.post("/l/%s/aflever" % code_s, data={"track": (io.BytesIO(wav24), "x.wav")},
+              headers={"X-CSRF-Token": solo.token, "X-Requested-With": "fetch"}, content_type="multipart/form-data")
+check("spil alene: aflevering", r.status_code == 200)
+post(solo, "/l/%s/afslut" % code_s)
+s, st = state(solo, code_s)
+check("spil alene: 'Jeg er færdig' -> resultat uden afstemning", st["phase"] == "result"
+      and len(st["result"]["ranking"]) == 1 and st["result"]["ranking"][0]["place"] is None, st.get("phase"))
+check("spil alene: rundens tal viser kun tiden", st["result"]["stats"]
+      == [{"label": "Tiden", "text": "Afleveret efter 1:30 af 5:00"}], st["result"]["stats"])
+check("spil alene: opsummering i stedet for point", st["series"] is None
+      and st["practice_summary"] == {"rounds": 1, "delivered": 1, "best": 90, "round_no": 1}, st.get("practice_summary"))
+r = post(solo, "/l/%s/ny-runde" % code_s)
+code_s2 = r.headers["Location"].rsplit("/", 1)[-1]
+s, st = state(solo, code_s2)
+check("spil alene: ny runde gaar i gang med det samme", st["phase"] == "spin" and st["practice"]
+      and st["round_no"] == 2 and st["spin"]["current"] == 1, st.get("phase"))
+
+# Alene i en almindelig lobby: ejeren kan vaelge at spille alene.
+o6 = client()
+r = post(o6, "/ny", {"name": "Ejer6", "minutes": "5", "team_size": "2"})
+code6 = r.headers["Location"].rsplit("/", 1)[-1]
+check("alene i en lobby: runden kan ikke starte som normalt", "mindst" in (state(o6, code6)[1]["start_problem"] or ""))
+post(o6, "/l/%s/start" % code6, {"solo": "1"})
+s, st = state(o6, code6)
+check("alene i en lobby: 'Spil alene' starter singleplayer", st["phase"] == "spin" and st["practice"]
+      and len(st["spin"]["order"]) == 1, st.get("phase"))
+o7 = client()
+r = post(o7, "/ny", {"name": "Ejer7", "minutes": "5", "team_size": "1"})
+code7 = r.headers["Location"].rsplit("/", 1)[-1]
+p7 = client(); post(p7, "/join", {"code": code7, "name": "Anden7"})
+post(o7, "/l/%s/start" % code7, {"solo": "1"})
+check("spil alene afvises, naar der er andre i lobbyen", "kun spille alene" in " ".join(flashes(o7))
+      and state(o7, code7)[1]["phase"] == "lobby")
+
 # ---------- udloeb og oprydning ----------
 o3 = client()
 r = post(o3, "/ny", {"name": "Ejer3", "minutes": "60", "team_size": "1"})
@@ -522,7 +616,7 @@ app._next_cleanup[0] = 0
 conn = database.connect(); conn.execute("UPDATE meta SET value='0' WHERE key='cleanup_at'"); conn.commit()
 owner.get("/")
 conn = database.connect()
-check("efter 7 dage: lobbyer og afleveringer slettet", subs_before == 3 and list(core.SUBS.iterdir()) == []
+check("efter 7 dage: lobbyer og afleveringer slettet", subs_before == 4 and list(core.SUBS.iterdir()) == []
       and conn.execute("SELECT COUNT(*) FROM lobbies").fetchone()[0] == 0
       and conn.execute("SELECT COUNT(*) FROM players").fetchone()[0] == 0
       and conn.execute("SELECT COUNT(*) FROM votes").fetchone()[0] == 0, (subs_before, list(core.SUBS.iterdir())))

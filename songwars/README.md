@@ -21,15 +21,18 @@ tests/
   fixtures/                 korte toner (mp3, m4a og ogg forklædt som mp3, en halv mp3)
 templates/
   base.html                 ramme, CSRF-token som <meta>
-  home.html                 opret / join
-  lobby.html                alle faser som skeletter - lobby.js viser den der er nu
+  home.html                 startmenuen: Spil (opret / join / storskærm), Tilpas, Indstillinger
+  lobby.html                alle faser som skeletter - lobby.js viser den der er nu (også storskærmen)
   admin.html, admin_login.html
   error.html
 static/
   styles.css                al styling - designsystemet staar som variabler oeverst
-  common.js                 data-confirm, data-busy, kopiér-knap, baggrundsscenen
-  lobby.js                  polling af /state, nedtælling, upload, afstemning
+  prefs.js                  i <head>: "Animationer: fra" gælder fra første billede
+  common.js                 indstillinger, lyd, vibration, data-confirm, kopiér-knap, baggrundsscenen
+  home.js                   startmenuen og "Tilpas" (kaldenavn, avatar, farve)
+  lobby.js                  polling af /state, hjulet, nedtælling, upload, afstemning, podiet
   admin.js                  status på hentninger fra YouTube
+  gear.svg                  tandhjulet - bruges som CSS-maske
   flame.svg                 flammen - bruges som CSS-maske (wordmark, stemmer)
   fonts/                    Poppins (titler) og Inter (tekst) som woff2, selvhostet (OFL)
 Dockerfile, docker-compose.yml, .env.example
@@ -110,6 +113,31 @@ giver 3 point, 2. plads 2 og 3. plads 1 — til alle på holdet, og lige
 placering giver samme point. Holdene trækkes på ny hver runde, så pointene
 følger personen, ikke holdet. Stillingen står i lobbyen og under
 resultatet fra runde 2.
+
+**Spil alene (singleplayer)**: "Spil alene" under "Spil" på forsiden — eller
+i en lobby hvor ejeren står alene, fordi ingen kom. Hjulet, beatet, uret og
+den ekstra tid er de samme, men der er ingen afstemning: når man har
+afleveret, trykker man "Jeg er færdig" (eller venter på tiden), og
+resultatet viser nummeret og hvor lang tid det tog. "Ny runde" går i gang
+med det samme, og over flere runder står der, hvor mange man nåede, og den
+hurtigste tid. Gemt som `lobbies.practice = 1`.
+
+**Resultatet** har et podie til top 3 og **Rundens tal** — dem man griner
+af bagefter, og kun når der er noget at sige: hårdeste dommer og
+gavmildeste (laveste og højeste snit i de flammer, man gav), mest uenige
+(et nummer der fik både 1–2 og 5), først færdig og lige på stregen (den
+sidste aflevering, og om den kom i den ekstra tid). Regnes i
+`round_stats()` i `game.py`.
+
+**Storskærm**: en skærm — et fjernsyn i stuen — der viser lobbyen i stort
+uden at være en spiller: koden, hjulet, hvem der fik hvilken genre, uret,
+hvem der har afleveret, og resultatet. Under afstemningen kan den afspille
+numrene, så alle hører dem på de store højttalere; den kan ikke stemme.
+Den kobles på med koden under "Spil" på forsiden, før runden starter — samme
+regel som for at joine — eller åbnes af en der er med i lobbyen
+(`/l/<kode>/skaerm`). Den følger selv med i en ny runde (`screens.from_id`).
+Browseren tillader først lyd efter et klik, så der står "Klik her for lyd"
+på skærmen.
 
 **Tiden håndhæves på serveren.** Fasen gemmes som status plus
 tidsstempler, og hver forespørgsel regner ud hvor vi er (`advance()` i
@@ -256,11 +284,32 @@ Variablerne står øverst i `static/styles.css`.
   viseren, et lille ryk (ikke ved reduceret bevægelse), skiven der vinder,
   lyser op, og resten dæmpes et par sekunder. Svage scanlines over hjulet
   og en tung vignette i hjørnerne. Taget genrer bliver matte.
-- **Lyd** laves med WebAudio, uden lydfiler: et kort klik for hver pind,
-  to blip når hjulet slippes, en dyb tone med en lys glimmer når det
-  lander, og to blip når det bliver ens tur. Browsere tillader først lyd
-  efter et klik på siden. "Lyd: til/fra" ved knappen, og valget huskes i
-  browseren.
+- **Startskærmen** er en konsolmenu: **Spil**, **Tilpas** og
+  **Indstillinger**, med piletaster, Enter og Esc, en gul markering og et
+  blip når den flytter sig. Hvert panel har sin adresse (`#spil`,
+  `#tilpas`, `#indstillinger`), så browserens tilbage-knap virker. Et link
+  med `?kode=` — og en fejl fra en formular — går direkte til "Spil", så
+  den der får et link, ikke mærker menuen. Uden JavaScript står "Spil"
+  fremme som før.
+- **Tilpas**: kaldenavn, en emoji som avatar og en farve. Gemt i browseren
+  (`sw-profile`) og sendt med, når man joiner eller opretter. Serveren
+  godtager kun emojier og farver fra sin egen liste (`core.AVATARS`,
+  `core.COLORS`); farven bruges som et klassenavn (`tint--blaa`), aldrig
+  som en værdi. Avataren følger med i nye runder.
+- **Indstillinger** — lyd, animationer og vibration — står på forsiden og
+  bag tandhjulet i toppen af alle sider. Gemt i browseren (`sw-prefs`).
+  "Animationer: fra" stiller alt: hjulet springer direkte til genren,
+  teksten står der med det samme, og blade og krager forsvinder.
+- **Lyd** laves med WebAudio, uden lydfiler: et klik for hver pind på
+  hjulet, blip når det slippes, en dyb tone når det lander, to blip når det
+  er ens tur, et tik hvert sekund de sidste ti (højere de sidste tre),
+  "modtaget" når man har afleveret, en alarm når den ekstra tid starter, en
+  tone når genren afsløres, og en fanfare ved resultatet. **Aldrig under
+  afstemningen** — så hører man numrene. Browsere tillader først lyd efter
+  et klik på siden.
+- **Vibration** på mobilen: når det er ens tur til at dreje, når den ekstra
+  tid starter, og de sidste sekunder. Først når man har rørt siden — det
+  kræver browseren.
 - **Hjulets vinkel er en funktion af serverens ur** (`frame()` i
   `lobby.js`): hvert spin starter, hvor det forrige landede, og slutvinklen
   regnes ud fra genren og tidspunktet. Så står hjulet samme sted hos alle —

@@ -24,6 +24,8 @@ import secrets
 
 from flask import url_for
 
+from core import clock
+
 from core import (
     CODE_ALPHABET, CODE_LEN, EXTRA_SECONDS, GRACE_SECONDS, LOBBY_SECONDS,
     MAX_UPLOAD, ONLINE_SECONDS, PLACE_POINTS, REVEAL_SECONDS, SPIN_INTRO,
@@ -92,22 +94,7 @@ def advance(lobby):
                                   or (t >= lobby["deadline"] and all_delivered(conn, lid))):
         # Afleveringen lukker naar den ekstra tid er gaaet - eller med det
         # samme naar tiden er gaaet, hvis alle hold allerede har afleveret.
-        won = conn.execute(
-            "UPDATE lobbies SET status = 'voting', voting_at = ? WHERE id = ? AND status = 'running'",
-            (t, lid)).rowcount
-        if won:
-            subs = [r["id"] for r in conn.execute(
-                "SELECT id FROM submissions WHERE lobby_id = ?", (lid,))]
-            conn.execute("UPDATE lobbies SET vote_deadline = ? WHERE id = ?",
-                         (t + max(VOTE_MIN_SECONDS, VOTE_SECONDS_PER_TRACK * len(subs)), lid))
-            # Raekkefoelgen i afstemningen er tilfaeldig - ikke den
-            # raekkefoelge numrene blev afleveret i, og ikke holdnumrene.
-            secrets.SystemRandom().shuffle(subs)
-            for position, sid in enumerate(subs, start=1):
-                conn.execute("UPDATE submissions SET position = ? WHERE id = ?", (position, sid))
-            if not subs:
-                conn.execute("UPDATE lobbies SET status = 'done', done_at = ? WHERE id = ?", (t, lid))
-        conn.commit()
+        open_voting(conn, lid, t)
 
     elif status == "spinning" and lobby["turn_at"] is not None \
             and t >= lobby["turn_at"] + SPIN_SECONDS:
@@ -194,6 +181,40 @@ def spin(conn, lid, at, by=None, team_id=None):
     return still
 
 
+def open_voting(conn, lid, t):
+    """Afleveringen lukker, og afstemningen gaar i gang - med en frist og
+    numrene i tilfaeldig raekkefoelge. Kun en forespoergsel vinder den.
+    Rydder ikke ved fristen (deadline): den bruges bagefter til at se, hvem
+    der afleverede i den ekstra tid."""
+    lobby = conn.execute("SELECT practice FROM lobbies WHERE id = ?", (lid,)).fetchone()
+    if lobby and lobby["practice"]:
+        # Singleplayer: der er ingen at stemme med. Nummeret faar sit
+        # "Nummer 1", og runden er slut.
+        won = conn.execute(
+            "UPDATE lobbies SET status = 'done', voting_at = ?, done_at = ? WHERE id = ? AND status = 'running'",
+            (t, t, lid)).rowcount
+        if won:
+            conn.execute("UPDATE submissions SET position = 1 WHERE lobby_id = ?", (lid,))
+        conn.commit()
+        return
+    won = conn.execute(
+        "UPDATE lobbies SET status = 'voting', voting_at = ? WHERE id = ? AND status = 'running'",
+        (t, lid)).rowcount
+    if won:
+        subs = [r["id"] for r in conn.execute(
+            "SELECT id FROM submissions WHERE lobby_id = ?", (lid,))]
+        conn.execute("UPDATE lobbies SET vote_deadline = ? WHERE id = ?",
+                     (t + max(VOTE_MIN_SECONDS, VOTE_SECONDS_PER_TRACK * len(subs)), lid))
+        # Raekkefoelgen i afstemningen er tilfaeldig - ikke den
+        # raekkefoelge numrene blev afleveret i, og ikke holdnumrene.
+        secrets.SystemRandom().shuffle(subs)
+        for position, sid in enumerate(subs, start=1):
+            conn.execute("UPDATE submissions SET position = ? WHERE id = ?", (position, sid))
+        if not subs:
+            conn.execute("UPDATE lobbies SET status = 'done', done_at = ? WHERE id = ?", (t, lid))
+    conn.commit()
+
+
 def vote_progress(conn, lid):
     """(spillere der er faerdige, spillere der skal stemme, stemmer der
     mangler i alt). Man stemmer paa alle numre undtagen sit eget holds."""
@@ -227,18 +248,46 @@ def make_teams(player_ids, size):
     return teams
 
 
-def start_problem(conn, lobby, players):
-    """Hvorfor runden ikke kan starte endnu, eller None."""
+def begin_round(conn, lobby, players, practice=False):
+    """Runden gaar i gang: holdene trækkes, og hjulet venter paa foerste
+    tur. Kun en forespoergsel vinder den (dobbeltklik). Returnerer om den
+    vandt."""
+    t = now()
+    won = conn.execute(
+        "UPDATE lobbies SET status = 'spinning', started_at = ?, turn_at = ?, practice = ?"
+        " WHERE id = ? AND status = 'lobby'",
+        (t, t + SPIN_INTRO, 1 if practice else 0, lobby["id"])).rowcount
+    if not won:
+        conn.rollback()
+        return False
+    teams = make_teams([p["id"] for p in players], 1 if practice else lobby["team_size"])
+    # Hvem der drejer hjulet foerst, er trukket for sig - ikke holdnumrene.
+    order = list(range(1, len(teams) + 1))
+    secrets.SystemRandom().shuffle(order)
+    for number, members in enumerate(teams, 1):
+        tid = conn.execute("INSERT INTO teams (lobby_id, number, spin_order) VALUES (?, ?, ?)",
+                           (lobby["id"], number, order[number - 1])).lastrowid
+        conn.executemany("UPDATE players SET team_id = ? WHERE id = ?", [(tid, pid) for pid in members])
+    conn.commit()
+    return True
+
+
+def start_problem(conn, lobby, players, practice=False):
+    """Hvorfor runden ikke kan starte endnu, eller None. I singleplayer
+    (practice) er man alene - og der skal heller ikke vaere andre."""
     size = lobby["team_size"]
     need = 2 * size
-    if len(players) < need:
+    if practice:
+        if len(players) != 1:
+            return "Man kan kun spille alene, når man er alene i lobbyen."
+    elif len(players) < need:
         return ("Der skal være mindst {0} spillere, så der er to hold at stemme på."
                 .format(need) if size > 1 else
                 "Der skal være mindst 2 spillere.")
     available = genres_with_beats(conn)
     if not available:
         return "Der er ingen beats endnu. En admin skal lægge nogle op."
-    teams = max(1, len(players) // size)
+    teams = 1 if practice else max(1, len(players) // size)
     if teams > len(available):
         return ("Der bliver {0} hold, men der er kun {1} genrer med beats — og alle skal have "
                 "hver sin. En admin kan lægge beats op i flere genrer, eller I kan spille på "
@@ -251,7 +300,11 @@ def start_problem(conn, lobby, players):
     return None
 
 
-def state_for(conn, lobby, me, t):
+# Den der kigger paa en storskaerm: ingen spiller, intet hold.
+VIEWER = {"id": -1, "name": "Storskærm", "team_id": None}
+
+
+def state_for(conn, lobby, me, t, screen=False):
     lid = lobby["id"]
     phase = phase_of(lobby, t)
     is_owner = me["id"] == lobby["owner_id"]
@@ -271,13 +324,17 @@ def state_for(conn, lobby, me, t):
                "team": teams.get(my_team)},
         "settings": {"minutes": lobby["minutes"], "team_size": lobby["team_size"]},
         "round_no": lobby["round_no"],
+        "practice": bool(lobby["practice"]),
         "players": [{
             "id": p["id"], "name": p["name"],
             "owner": p["id"] == lobby["owner_id"],
             "me": p["id"] == me["id"],
             "online": t - p["seen_at"] < ONLINE_SECONDS,
             "team": teams.get(p["team_id"]),
+            "avatar": p["avatar"],
+            "color": p["color"],
         } for p in players],
+        "screen": screen,
     }
 
     if phase == "lobby":
@@ -401,11 +458,87 @@ def state_for(conn, lobby, me, t):
         "missing": [{"team": n, "members": members.get(n, [])}
                     for n in sorted(set(teams.values())) if n not in delivered],
     }
-    state["series"] = standings(conn, lobby, me)
+    state["result"]["stats"] = round_stats(conn, lobby, subs, players, teams)
+    if lobby["practice"]:
+        # Alene er der ingen at sammenligne med - kun tiden.
+        state["result"]["stats"] = practice_stats(lobby, subs)
+        state["practice_summary"] = practice_summary(conn, lobby)
+    state["series"] = None if lobby["practice"] else standings(conn, lobby, me)
     child = conn.execute("SELECT code FROM lobbies WHERE parent_id = ?", (lid,)).fetchone()
-    state["next"] = ({"code": child["code"], "url": url_for("lobby_page", code=child["code"])}
+    state["next"] = ({"code": child["code"],
+                      "url": url_for("screen_page" if screen else "lobby_page", code=child["code"])}
                      if child else None)
     return state
+
+
+def practice_stats(lobby, subs):
+    """Singleplayer: hvor lang tid det tog, af hvor meget."""
+    if not subs or not lobby["make_at"]:
+        return [{"label": "Tiden", "text": "Du nåede ikke at aflevere."}]
+    took = max(s["uploaded_at"] for s in subs) - lobby["make_at"]
+    return [{"label": "Tiden", "text": "Afleveret efter {0} af {1}".format(
+        seconds_text(took), clock(lobby["minutes"] * 60))}]
+
+
+def seconds_text(seconds):
+    seconds = max(0, int(round(seconds)))
+    return "{0} sek.".format(seconds) if seconds < 60 else clock(seconds)
+
+
+def round_stats(conn, lobby, subs, players, teams):
+    """Et par tal fra runden til resultatskaermen - dem man griner af bagefter.
+    Kun det der er noget at sige om: to dommere med samme snit giver ingen
+    "hårdeste dommer"."""
+    solo = lobby["team_size"] == 1
+    names = {p["id"]: p["name"] for p in players}
+    team_names = {}
+    for p in players:
+        team_names.setdefault(p["team_id"], []).append(p["name"])
+
+    def who(team_id):
+        if solo:
+            return (team_names.get(team_id) or ["Nogen"])[0]
+        return "Hold {0}".format(teams.get(team_id, "?"))
+
+    stats = []
+    votes = conn.execute(
+        "SELECT v.player_id, v.flames, s.team_id FROM votes v JOIN submissions s ON s.id = v.submission_id"
+        " WHERE s.lobby_id = ?", (lobby["id"],)).fetchall()
+
+    by_voter = {}
+    for v in votes:
+        by_voter.setdefault(v["player_id"], []).append(v["flames"])
+    judged = sorted((sum(f) / len(f), names.get(pid, "?")) for pid, f in by_voter.items())
+    if len(judged) >= 2 and judged[0][0] != judged[-1][0]:
+        stats.append({"label": "Hårdeste dommer",
+                      "text": "{0} gav i snit {1:.1f}".format(judged[0][1], judged[0][0]).replace(".", ",")})
+        stats.append({"label": "Gavmildeste",
+                      "text": "{0} gav i snit {1:.1f}".format(judged[-1][1], judged[-1][0]).replace(".", ",")})
+
+    by_team = {}
+    for v in votes:
+        by_team.setdefault(v["team_id"], []).append(v["flames"])
+    spread = max(((max(f) - min(f), team) for team, f in by_team.items() if len(f) >= 2), default=None)
+    if spread and spread[0] >= 3:
+        f = by_team[spread[1]]
+        stats.append({"label": "Mest uenige",
+                      "text": "{0} fik både {1} og {2} flammer".format(who(spread[1]), min(f), max(f))})
+
+    if len(subs) >= 2 and lobby["make_at"]:
+        first = min(subs, key=lambda s: s["uploaded_at"])
+        stats.append({"label": "Først færdig",
+                      "text": "{0} afleverede efter {1}".format(
+                          first["by_name"] or who(first["team_id"]),
+                          seconds_text(first["uploaded_at"] - lobby["make_at"]))})
+    if subs and lobby["deadline"]:
+        last = max(subs, key=lambda s: s["uploaded_at"])
+        late = last["uploaded_at"] - lobby["deadline"]
+        by = last["by_name"] or who(last["team_id"])
+        stats.append({"label": "Lige på stregen" if late > -30 else "Sidst ind",
+                      "text": ("{0} afleverede i ekstratiden, {1} efter tiden".format(by, seconds_text(late))
+                               if late > 0 else
+                               "{0} afleverede {1} før tiden".format(by, seconds_text(-late)))})
+    return stats
 
 
 def team_places(conn, lid):
@@ -467,6 +600,26 @@ def standings(conn, lobby, me):
              for p in names]
     table.sort(key=lambda r: (-r["points"], -r["wins"], r["name"].casefold()))
     return {"rounds": rounds, "round_no": lobby["round_no"], "standings": table}
+
+
+def practice_summary(conn, lobby):
+    """Singleplayer over flere runder: hvor mange runder, hvor mange af dem
+    man naaede at aflevere i, og den hurtigste tid (fra tiden startede til
+    den sidste aflevering)."""
+    rounds = delivered = 0
+    best = None
+    for lb in series_of(conn, lobby):
+        if lb["status"] != "done":
+            continue
+        rounds += 1
+        sub = conn.execute("SELECT MAX(uploaded_at) AS at FROM submissions WHERE lobby_id = ?",
+                           (lb["id"],)).fetchone()
+        if sub and sub["at"] and lb["make_at"]:
+            delivered += 1
+            took = sub["at"] - lb["make_at"]
+            best = took if best is None else min(best, took)
+    return {"rounds": rounds, "delivered": delivered, "best": round(best) if best is not None else None,
+            "round_no": lobby["round_no"]}
 
 
 def team_genre(lobby, team):

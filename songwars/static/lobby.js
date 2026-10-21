@@ -16,6 +16,9 @@
   var STATE_URL = game.dataset.stateUrl;
   var KICK_URL = game.dataset.kickUrl;
   var WAS_OWNER = game.dataset.owner === "1";
+  // Storskaermen: viser lobbyen uden at vaere en spiller. Ingen knapper,
+  // ingen stemmer - men lyden, hjulet, uret og resultatet i stort.
+  var SCREEN = game.dataset.screen === "1";
   var CSRF = document.querySelector('meta[name="csrf"]').content;
   var POLL_MS = 2500;
 
@@ -51,6 +54,20 @@
   }
 
   function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+
+  /* En spillers ansigt: emojien og farven fra "Tilpas" - ellers
+     forbogstaverne. Farven er en noegle (core.COLORS), aldrig en vaerdi
+     fra brugeren, saa den kan bruges direkte i et klassenavn. */
+  function face(p, cls) {
+    var node = el("span", (cls || "avatar") + (p.color ? " tint--" + p.color : "") +
+                          (p.avatar ? " avatar--emoji" : ""), p.avatar || initials(p.name));
+    node.setAttribute("aria-hidden", "true");
+    return node;
+  }
+
+  function playerByName(name) {
+    return (state && state.players || []).filter(function (p) { return p.name === name; })[0] || { name: name };
+  }
 
   /* "Mads Hansen" -> "MH", "Lucas" -> "L". */
   function initials(name) {
@@ -197,7 +214,7 @@
 
   function renderPlayers(data) {
     var rows = data.players.map(function (p) {
-      return [p.id, p.name, p.owner, p.me, p.team];
+      return [p.id, p.name, p.owner, p.me, p.team, p.avatar, p.color];
     });
     $("player-count").textContent = plural(data.players.length, "spiller", "spillere");
     if (!changed("players", [rows, data.phase, data.me.owner])) return;
@@ -209,9 +226,8 @@
     data.players.forEach(function (p) {
       var li = el("li", "crew__item" + (!firstDraw && !seenPlayers[p.id] ? " is-new" : ""));
       seenPlayers[p.id] = true;
-      var face = el("span", "avatar" + (p.owner ? " avatar--owner" : ""), initials(p.name));
-      face.setAttribute("aria-hidden", "true");
-      li.appendChild(face);
+      var me = face(p, "avatar" + (p.owner ? " avatar--owner" : ""));
+      li.appendChild(me);
       var who = el("span", "crew__who");
       who.appendChild(el("span", "crew__name", p.name));
       var meta = [];
@@ -238,7 +254,7 @@
     });
 
     // Under og efter en runde kan man ikke forlade lobbyen.
-    $("leave-form").hidden = ["spin", "reveal", "make", "extra", "vote"].indexOf(data.phase) !== -1;
+    if ($("leave-form")) $("leave-form").hidden = ["spin", "reveal", "make", "extra", "vote"].indexOf(data.phase) !== -1;
   }
 
   /* ---------- 1. Lobby ---------- */
@@ -267,6 +283,8 @@
     renderSeries($("lobby-series"), data.series, function (s) {
       return "Runde " + s.round_no + " · stillingen efter " + plural(s.rounds, "runde", "runder");
     });
+    var soloBtn = $("solo-btn");
+    if (soloBtn) soloBtn.hidden = data.players.length !== 1;
     var problem = $("start-problem");
     if (problem) {
       problem.hidden = !data.start_problem;
@@ -321,93 +339,7 @@
   var wheel = { names: null, landed: null, fx: null, raf: 0, peg: null, flapAt: -1e9, ticks: [], lit: null, gauge: -1,
                 shown: null, wonUntil: 0, started: null, blur: 0, turnSound: null };
 
-  /* ---------- Lyd ----------
-     Korte, kantede menulyde som paa en PS2: et klik for hver pind der
-     passerer viseren, to blip naar hjulet slippes, og en dyb tone med en
-     lys glimmer ovenpaa, naar det lander. Det hele laves med WebAudio -
-     ingen lydfiler. Browseren tillader foerst lyd efter et klik eller et
-     tastetryk paa siden; spilleren kan slaa den fra, og valget huskes. */
-
-  var sound = (function () {
-    var ctx = null, out = null, on = true, lastTick = 0;
-    try { on = localStorage.getItem("sw-sound") !== "off"; } catch (e) {}
-
-    function unlock() {
-      if (!on) return;
-      var AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
-      try {
-        if (!ctx) {
-          ctx = new AC();
-          out = ctx.createGain();
-          out.gain.value = 0.7;
-          out.connect(ctx.destination);
-        }
-        if (ctx.state === "suspended") ctx.resume();
-      } catch (e) { ctx = null; }
-    }
-    document.addEventListener("pointerdown", unlock, { passive: true });
-    document.addEventListener("keydown", unlock);
-
-    function ready() { return on && ctx && ctx.state === "running"; }
-
-    function tone(freq, type, at, dur, vol, opts) {
-      opts = opts || {};
-      var o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = type;
-      o.frequency.setValueAtTime(freq, at);
-      if (opts.to) o.frequency.exponentialRampToValueAtTime(opts.to, at + dur);
-      if (opts.detune) o.detune.value = opts.detune;
-      var attack = opts.attack || 0.006;
-      g.gain.setValueAtTime(0.0001, at);
-      g.gain.exponentialRampToValueAtTime(vol, at + attack);
-      g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-      o.connect(g);
-      g.connect(out);
-      o.start(at);
-      o.stop(at + dur + 0.05);
-    }
-
-    return {
-      isOn: function () { return on; },
-      toggle: function () {
-        on = !on;
-        try { localStorage.setItem("sw-sound", on ? "on" : "off"); } catch (e) {}
-        if (on) unlock();
-        return on;
-      },
-      // Et klik pr. pind - men aldrig tættere end 30 ms, ellers bliver det en brummen.
-      tick: function () {
-        if (!ready()) return;
-        var now = ctx.currentTime;
-        if (now - lastTick < 0.03) return;
-        lastTick = now;
-        tone(1650 + Math.random() * 140, "square", now, 0.024, 0.03);
-      },
-      release: function () {
-        if (!ready()) return;
-        var now = ctx.currentTime;
-        tone(660, "square", now, 0.06, 0.035);
-        tone(990, "square", now + 0.07, 0.08, 0.035);
-      },
-      // Den dybe "boot"-tone: to lave sinustoner, en blød trekant og en glimmer.
-      land: function () {
-        if (!ready()) return;
-        var now = ctx.currentTime;
-        tone(55, "sine", now, 2.4, 0.22, { attack: 0.03 });
-        tone(110, "sine", now, 2.0, 0.12, { attack: 0.03 });
-        tone(220, "triangle", now, 1.6, 0.05, { attack: 0.05, detune: 7 });
-        tone(1320, "sine", now + 0.05, 1.4, 0.022, { attack: 0.08, to: 1760 });
-        tone(880, "square", now, 0.09, 0.03);
-      },
-      turn: function () {
-        if (!ready()) return;
-        var now = ctx.currentTime;
-        tone(880, "square", now, 0.07, 0.03);
-        tone(1320, "square", now + 0.09, 0.1, 0.03);
-      }
-    };
-  })();
+  var sound = window.SW.sound;
 
   function restartClass(node, cls) {
     node.classList.remove(cls);
@@ -576,6 +508,7 @@
     var cur = null;
     plans.forEach(function (p) { if (p.o.spun_at <= t) cur = p; });
     if (!cur) return { a: 0, moving: false, plan: null };
+    if (window.SW.still()) return { a: cur.to, moving: false, plan: cur };
     var e = t - cur.o.spun_at;
     if (e >= ms) return { a: cur.to, moving: false, plan: cur };
     if (e < WIND_MS) {
@@ -701,6 +634,7 @@
         var li = el("li", "turn" + (o.mine ? " is-mine" : ""));
         li.dataset.n = String(o.number);
         li.appendChild(el("span", "turn__n", String(i + 1)));
+        if (solo) li.appendChild(face(playerByName(o.members[0]), "avatar avatar--small"));
         var who = el("span", "turn__who");
         who.appendChild(el("span", "turn__name", turnName(o, solo) + (o.mine ? (solo ? " · dig" : " · jer") : "")));
         if (!solo) who.appendChild(el("span", "turn__members", o.members.join(", ")));
@@ -721,12 +655,13 @@
     var s = state.spin, solo = state.round.solo, t = serverNow();
     var spins = spinsOf(s);
     var last = spins[spins.length - 1] || null;
-    var spinning = last && t < last.spun_at + s.spin_ms;
+    var spinMs = window.SW.still() ? 0 : s.spin_ms;
+    var spinning = last && t < last.spun_at + spinMs;
     kick();
 
     s.order.forEach(function (o) {
       var li = $("spin-order").querySelector('[data-n="' + o.number + '"]');
-      var landed = o.spun_at && t >= o.spun_at + s.spin_ms;
+      var landed = o.spun_at && t >= o.spun_at + spinMs;
       var slice = o.genre ? $("wheel-disc").querySelector('.slice[data-genre="' + CSS.escape(o.genre) + '"]') : null;
       if (landed && !wheel.landed[o.spun_at]) {
         wheel.landed[o.spun_at] = true;
@@ -790,6 +725,7 @@
     if (s.my_turn && !waiting && wheel.turnSound !== s.turn_at) {
       wheel.turnSound = s.turn_at;
       sound.turn();
+      window.SW.buzz([80, 60, 80]);
     }
     if (s.my_turn) setText(nowLine, solo ? "Din tur — spin hjulet." : "Jeres tur — spin hjulet.");
     else setText(nowLine, "Det er " + genitive(turnName(cur, solo)) + " tur.");
@@ -801,11 +737,27 @@
 
   var soundBtn = $("sound-btn");
   function paintSound() {
-    soundBtn.textContent = sound.isOn() ? "Lyd: til" : "Lyd: fra";
-    soundBtn.setAttribute("aria-pressed", sound.isOn() ? "true" : "false");
+    var on = window.SW.prefs().sound;
+    soundBtn.textContent = on ? "Lyd: til" : "Lyd: fra";
+    soundBtn.setAttribute("aria-pressed", on ? "true" : "false");
   }
-  soundBtn.addEventListener("click", function () { sound.toggle(); paintSound(); });
+  soundBtn.addEventListener("click", function () {
+    window.SW.setPref("sound", !window.SW.prefs().sound);
+    if (window.SW.prefs().sound) { sound.unlock(); sound.ok(); }
+  });
+  window.SW.onPrefs(paintSound);
   paintSound();
+
+  // Storskaermen: et klik paa skaermen slaar lyden til (det kraever browseren).
+  var screenSound = $("screen-sound");
+  if (screenSound) {
+    screenSound.addEventListener("click", function () {
+      window.SW.setPref("sound", true);
+      sound.unlock();
+      setTimeout(function () { sound.ok(); }, 60);
+      screenSound.hidden = true;
+    });
+  }
 
   var spinBusy = false;
   $("spin-btn").addEventListener("click", function () {
@@ -830,7 +782,34 @@
 
   /* ---------- 3. Reveal ---------- */
 
+  /* Storskaermen: hvert hold (eller hver spiller) med sin genre - og om de
+     har afleveret. */
+  function renderScreenTeams(node, data) {
+    if (!node) return;
+    var delivered = data.make ? data.make.delivered : [];
+    var rows = data.round.teams.map(function (t) {
+      return [t.number, t.members, t.genre, delivered.indexOf(t.number) !== -1];
+    });
+    if (!changed("screen-" + node.id, rows)) return;
+    node.textContent = "";
+    data.round.teams.forEach(function (t) {
+      var li = el("li", "screen-team" + (delivered.indexOf(t.number) !== -1 ? " is-done" : ""));
+      var who = el("span", "screen-team__who");
+      t.members.forEach(function (n) { who.appendChild(face(playerByName(n), "avatar avatar--small")); });
+      who.appendChild(el("span", "screen-team__name", data.round.solo ? (t.members[0] || "Solo") : "Hold " + t.number));
+      li.appendChild(who);
+      li.appendChild(el("span", "screen-team__genre", t.genre || "—"));
+      if (data.make) li.appendChild(el("span", "screen-team__state", delivered.indexOf(t.number) !== -1 ? "afleveret" : "arbejder …"));
+      node.appendChild(li);
+    });
+  }
+
   function renderReveal(data) {
+    if (SCREEN) {
+      if (window.SW) window.SW.type($("reveal-label"), "Genrerne er", 55);
+      renderScreenTeams($("screen-reveal"), data);
+      return;
+    }
     // Skrevet ud som paa en skrivemaskine: foerst "Din genre er", saa genren.
     var label = data.round.solo ? "Din genre er" : "Jeres genre er";
     var genre = data.round.genre;
@@ -864,11 +843,18 @@
     var finish = $("finish-make");
     if (finish) {
       var extra = data.phase === "extra";
-      $("finish-make-btn").textContent = extra ? "Luk afleveringen nu" : "Stop tiden nu";
-      finish.dataset.confirm = extra
-        ? "Luk afleveringen nu? Hold der ikke har afleveret, er ude af runden."
-        : "Stop tiden nu? Så starter de " + minutesText(round.extra) + " ekstra tid til at aflevere.";
+      if (data.practice) {
+        $("finish-make-btn").textContent = "Jeg er færdig";
+        finish.dataset.confirm = make.mine ? "Afslut runden nu? Det du har afleveret, er med."
+                                           : "Afslut runden uden at aflevere?";
+      } else {
+        $("finish-make-btn").textContent = extra ? "Luk afleveringen nu" : "Stop tiden nu";
+        finish.dataset.confirm = extra
+          ? "Luk afleveringen nu? Hold der ikke har afleveret, er ude af runden."
+          : "Stop tiden nu? Så starter de " + minutesText(round.extra) + " ekstra tid til at aflevere.";
+      }
     }
+    if (SCREEN) { renderScreenTeams($("screen-make"), data); return; }
     $("make-genre").textContent = round.genre;
     $("make-beat").textContent = round.beat;
     if (round.beat_url) {
@@ -888,6 +874,7 @@
     }
 
     var delivered = $("delivered");
+    delivered.hidden = !!data.practice;          // alene er "1 af 1 hold" bare stoej
     if (changed("delivered", [make.delivered, make.teams])) {
       delivered.textContent = "";
       delivered.appendChild(document.createTextNode(
@@ -906,14 +893,14 @@
   var uploadForm = $("upload-form");
   var trackInput = $("track-input");
 
-  trackInput.addEventListener("change", function () {
+  if (uploadForm) trackInput.addEventListener("change", function () {
     var file = trackInput.files[0];
     $("drop-main").textContent = file ? file.name : "Vælg dit nummer";
     $("upload-msg").textContent = "";
     $("upload-msg").className = "upload__msg";
   });
 
-  uploadForm.addEventListener("submit", function (event) {
+  if (uploadForm) uploadForm.addEventListener("submit", function (event) {
     event.preventDefault();
     var file = trackInput.files[0];
     var msg = $("upload-msg");
@@ -951,6 +938,8 @@
       meter.hidden = true;
       if (xhr.status === 200 && data && data.ok) {
         msg.textContent = "Afleveret.";
+        sound.received();
+        window.SW.buzz(60);
         msg.className = "upload__msg is-good";
         uploadForm.reset();
         $("drop-main").textContent = "Vælg en ny version";
@@ -1035,7 +1024,7 @@
 
   function renderVote(data) {
     var v = data.vote;
-    var line = v.my_need
+    var line = SCREEN ? "" : v.my_need
       ? "Du har stemt på " + v.my_have + " af " + v.my_need + " · "
       : "Der er ikke noget for dig at stemme på. ";
     $("vote-progress").textContent = line + v.done_players + " af " +
@@ -1056,7 +1045,7 @@
         var a = el("audio", "player");
         a.controls = true; a.preload = "none"; a.src = t.url;
         li.appendChild(a);
-        if (!t.mine) {
+        if (!t.mine && !SCREEN) {
           li.appendChild(flameRow(t));
           li.appendChild(el("p", "track__status", ""));
         }
@@ -1065,7 +1054,7 @@
     }
 
     v.tracks.forEach(function (t) {
-      if (t.mine) return;
+      if (t.mine || SCREEN) return;
       var li = list.querySelector('[data-id="' + t.id + '"]');
       if (!li) return;
       var flames = pending[t.id] !== undefined ? pending[t.id] : t.flames;
@@ -1095,22 +1084,87 @@
 
   var announcedNext = false;
 
+  /* Podiet: de tre bedste, med 1. pladsen hoejest i midten. Lige
+     placering staar paa samme trin. */
+  function renderPodium(node, ranking, solo) {
+    var top = ranking.filter(function (r) { return r.place && r.place <= 3; }).slice(0, 3);
+    node.hidden = !top.length;
+    node.textContent = "";
+    if (!top.length) return;
+    var order = top.length === 3 ? [top[1], top[0], top[2]] : top.length === 2 ? [top[1], top[0]] : [top[0]];
+    order.forEach(function (row) {
+      var step = el("div", "podium__step podium__step--" + row.place + (row.mine ? " is-mine" : ""));
+      var faces = el("div", "podium__faces");
+      row.members.slice(0, 4).forEach(function (n) { faces.appendChild(face(playerByName(n), "avatar avatar--big")); });
+      step.appendChild(faces);
+      step.appendChild(el("span", "podium__who", solo ? (row.members[0] || "Ukendt") : "Hold " + row.team));
+      step.appendChild(el("span", "podium__score",
+        row.average === null ? "" : row.average.toFixed(1).replace(".", ",") + " flammer"));
+      var block = el("div", "podium__block");
+      block.appendChild(el("span", "podium__place", String(row.place)));
+      step.appendChild(block);
+      node.appendChild(step);
+    });
+  }
+
+  /* Singleplayer over flere runder: hvor mange man naaede, og den hurtigste. */
+  function renderPractice(node, summary) {
+    if (!node || !summary || summary.rounds < 2) return;
+    node.hidden = false;
+    node.textContent = "";
+    node.appendChild(el("p", "field__label", "Runde " + summary.round_no + " alene"));
+    var ol = el("ol", "series__list series__list--plain");
+    var rows = [["Afleveret", summary.delivered + " af " + plural(summary.rounds, "runde", "runder")]];
+    if (summary.best !== null) rows.push(["Hurtigste", clock(summary.best * 1000)]);
+    rows.forEach(function (r) {
+      var li = el("li", "series__row");
+      li.appendChild(el("span", "series__name", r[0]));
+      li.appendChild(el("span", "series__points", r[1]));
+      ol.appendChild(li);
+    });
+    node.appendChild(ol);
+  }
+
+  function renderStats(node, stats) {
+    node.hidden = !stats.length;
+    node.textContent = "";
+    if (!stats.length) return;
+    node.appendChild(el("p", "field__label", "Rundens tal"));
+    var grid = el("div", "stats__grid");
+    stats.forEach(function (s) {
+      var card = el("div", "stat");
+      card.appendChild(el("span", "stat__label", s.label));
+      card.appendChild(el("span", "stat__text", s.text));
+      grid.appendChild(card);
+    });
+    node.appendChild(grid);
+  }
+
   function renderResult(data) {
     var r = data.result, round = data.round;
-    renderSeries($("result-series"), data.series, function (s) {
+    if (!data.practice) renderSeries($("result-series"), data.series, function (s) {
       return "Stillingen efter " + plural(s.rounds, "runde", "runder");
     });
     // Ejeren har startet en ny runde: knappen til den, til alle.
     var link = $("next-round-link"), form = $("next-round-form");
+    if (form && data.practice) form.querySelector("button").textContent = "Ny runde";
     link.hidden = !data.next;
     if (form) form.hidden = !!data.next;
     if (data.next) {
       link.href = data.next.url;
-      if (!announcedNext) { announcedNext = true; say("næste runde er klar."); }
+      if (!announcedNext) {
+        announcedNext = true;
+        say("næste runde er klar.");
+        // Storskaermen har ingen til at trykke - den gaar selv med.
+        if (SCREEN) setTimeout(function () { location.href = data.next.url; }, 4000);
+      }
     }
     $("result-beat").textContent = round.genre
       ? (round.solo ? "Din genre: " : "Jeres genre: ") + round.genre + " · " + round.beat : "";
     if (!changed("result", r)) return;
+    renderPodium($("podium"), data.practice ? [] : r.ranking, round.solo);
+    renderStats($("round-stats"), r.stats || []);
+    renderPractice($("result-series"), data.practice_summary);
 
     var list = $("ranking");
     list.textContent = "";
@@ -1130,12 +1184,14 @@
       if (row.place === 1 && window.SW) { name.textContent = ""; window.SW.type(name, who, 75); }
       if (!round.solo) body.appendChild(el("p", "rank__members", row.members.join(", ")));
 
-      var score = el("div", "rank__score");
-      score.appendChild(flameMeter(row.average));
-      score.appendChild(el("span", "rank__avg",
-        row.average === null ? "Ingen stemmer"
-          : row.average.toFixed(1).replace(".", ",") + " · " + plural(row.votes, "stemme", "stemmer")));
-      body.appendChild(score);
+      if (!data.practice) {                  // alene er der ingen stemmer
+        var score = el("div", "rank__score");
+        score.appendChild(flameMeter(row.average));
+        score.appendChild(el("span", "rank__avg",
+          row.average === null ? "Ingen stemmer"
+            : row.average.toFixed(1).replace(".", ",") + " · " + plural(row.votes, "stemme", "stemmer")));
+        body.appendChild(score);
+      }
 
       var a = el("audio", "player");
       a.controls = true; a.preload = "none"; a.src = row.url;
@@ -1167,14 +1223,26 @@
 
   function say(text) { if (window.SW) window.SW.say(text); }
 
+  function soundFor(p, first) {
+    if (first) return;                         // ikke naar siden lige er aabnet
+    if (p === "reveal") sound.reveal();
+    if (p === "extra") { sound.alarm(); window.SW.buzz([120, 80, 120]); }
+    if (p === "result") sound.fanfare();
+  }
+
   function captionFor(p, data, first) {
+    soundFor(p, first);
     if (p === "lobby") say(first ? "venter på de andre …" : "");
     if (p === "spin" && !first) say("hjulet bestemmer. alle får hver sin genre.");
     if (p === "reveal") say((data.round.solo ? "din" : "jeres") + " genre er … " + data.round.genre.toLowerCase() + ".");
     if (p === "make" && !first) say("tiden går. hent beatet.");
-    if (p === "extra") say("tiden er gået. " + (data.round.solo ? "du" : "i") + " har " +
+    if (p === "extra") say("tiden er gået. " + (data.round.solo || data.practice ? "du" : "i") + " har " +
                            minutesText(data.round.extra) + " ekstra til at aflevere.");
     if (p === "vote") say(first ? "lyt med. giv flammer." : "tiden er gået. nu skal der stemmes.");
+    if (p === "result" && data.practice) {
+      say(data.result.ranking.length ? "nummeret er i hus. godt gået." : "du nåede det ikke denne gang.");
+      return;
+    }
     if (p === "result") {
       var top = data.result.ranking[0];
       if (!top || top.average === null) say("ingen fik stemmer.");
@@ -1227,15 +1295,22 @@
       // I lav-fasen gaar man bare videre i den ekstra tid ved nul. Foerst
       // naar den er gaaet, lukkes der.
       var over = extra && left <= 0;
-      $("upload-btn").disabled = over;
-      $("track-input").disabled = over;
-      if (over) {
+      if (uploadForm) {
+        $("upload-btn").disabled = over;
+        $("track-input").disabled = over;
+      }
+      if (over && uploadForm) {
         $("upload-msg").textContent = "Tiden er gået. Det der er afleveret, er med.";
       }
 
       // Skaermlaesere faar besked hvert minut og de sidste 30 og 10 sekunder.
       var secs = Math.ceil(left / 1000);
       var key = extra ? "x" : "m";
+      if (secs > 0 && secs <= 10 && warned[key + "tick"] !== secs) {
+        warned[key + "tick"] = secs;
+        sound.count(secs);
+        if (secs === 10 || secs === 3) window.SW.buzz(secs === 3 ? [60, 40, 60, 40, 60] : 50);
+      }
       if (secs === 60 && !warned[key + "minute"]) { warned[key + "minute"] = true; say(extra ? "ét minut til afleveringen lukker." : "ét minut tilbage."); }
       if (secs === 10 && !warned[key + "ten"]) { warned[key + "ten"] = true; say("ti sekunder."); }
       if (secs > 0 && (secs % 60 === 0 || secs === 30 || secs === 10)) {

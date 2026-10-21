@@ -3,6 +3,7 @@
 {% set invite = url_for('home', kode=lobby.code, _external=True) %}
 {% block title %}Lobby {{ lobby.code }} — Songwars{% endblock %}
 {% block mainclass %}wrap wrap--wide{% endblock %}
+{% block bodyclass %}{% if screen %}is-screen{% endif %}{% endblock %}
 
 {% block scripts %}
 <script src="{{ asset('lobby.js') }}" defer></script>
@@ -21,8 +22,9 @@
 {# Alt herunder er skeletter. lobby.js henter /state hvert 2,5 sekund og
    viser den fase der er nu - fasen bestemmes paa serveren, ikke her. #}
 <div class="game" id="game"
-     data-state-url="{{ url_for('lobby_state', code=lobby.code) }}"
+     data-state-url="{{ url_for('screen_state', code=lobby.code) if screen else url_for('lobby_state', code=lobby.code) }}"
      data-owner="{{ '1' if is_owner else '0' }}"
+     data-screen="{{ '1' if screen else '0' }}"
      data-kick-url="{{ url_for('kick', code=lobby.code) }}">
 
   <noscript>
@@ -38,7 +40,11 @@
       <div class="lobbycode">
         <span class="lobbycode__label">Lobbykode</span>
         <strong class="lobbycode__code loud">{{ lobby.code }}</strong>
-        <button type="button" class="btn" data-copy="{{ invite }}">Kopiér link</button>
+        {% if screen %}
+          <p class="screen-join">Gå ind på <strong>{{ url_for('home', _external=True) | replace('http://', '') | replace('https://', '') | trim('/') }}</strong> og skriv koden</p>
+        {% else %}
+          <button type="button" class="btn" data-copy="{{ invite }}">Kopiér link</button>
+        {% endif %}
       </div>
 
       <h1 class="stage__title" id="stage-title" data-wave>Venter på flere spillere<span class="dots" aria-hidden="true"></span></h1>
@@ -49,6 +55,8 @@
         <form method="post" action="{{ url_for('start', code=lobby.code) }}" class="start">
           <input type="hidden" name="csrf" value="{{ csrf_token() }}">
           <button class="btn btn--go" id="start-btn" type="submit" aria-describedby="start-problem">Start runden</button>
+          {# Kom der ingen? Saa kan ejeren spille alene - kun naar man er alene. #}
+          <button class="btn" id="solo-btn" type="submit" name="solo" value="1" hidden>Spil alene</button>
           <p class="start__why" id="start-problem" hidden></p>
         </form>
 
@@ -73,6 +81,11 @@
         </details>
       {% else %}
         <p class="muted" id="waiting-line">Venter på at ejeren starter runden.</p>
+      {% endif %}
+      {% if screen %}
+        {# En storskaerm har ingen at klikke for sig - browseren tillader
+           foerst lyd efter et klik. #}
+        <button class="btn screen-sound" id="screen-sound" type="button">Klik her for lyd</button>
       {% endif %}
     </div>
 
@@ -130,8 +143,12 @@
         <p class="genrecard__label" id="reveal-label">Din genre er</p>
         <h1 class="reveal__genre loud" id="reveal-genre"></h1>
       </div>
-      <p class="reveal__beat">Beat: <strong id="reveal-beat"></strong></p>
-      <div class="teamcard" id="reveal-team"></div>
+      {% if screen %}
+        <ol class="screen-teams" id="screen-reveal"></ol>
+      {% else %}
+        <p class="reveal__beat">Beat: <strong id="reveal-beat"></strong></p>
+        <div class="teamcard" id="reveal-team"></div>
+      {% endif %}
       <p class="muted">Tiden starter om <strong class="num" id="reveal-left">—</strong></p>
     </div>
 
@@ -143,6 +160,9 @@
       </div>
       <p class="sr" id="timer-live" aria-live="polite"></p>
 
+      {% if screen %}
+      <ol class="screen-teams" id="screen-make"></ol>
+      {% else %}
       <div class="beatcard">
         <p class="muted" id="make-genre"></p>
         <h2 class="beatcard__title" id="make-beat"></h2>
@@ -173,6 +193,7 @@
       </div>
 
       <p class="delivered" id="delivered"></p>
+      {% endif %}
 
       {% if is_owner %}
         {# Teksten skifter med fasen (lobby.js): "Stop tiden nu" starter den
@@ -205,6 +226,9 @@
     <div class="phase" data-phase="result" hidden>
       <h1 class="stage__title" data-wave>Resultat</h1>
       <p class="muted" id="result-beat"></p>
+      {# Podiet: top 3. Under det hele ranglisten med numrene. #}
+      <div class="podium" id="podium" hidden></div>
+      <div class="stats" id="round-stats" hidden></div>
       <ol class="ranking" id="ranking"></ol>
       <div class="missing" id="missing" hidden></div>
       <div class="series" id="result-series" hidden></div>
@@ -216,7 +240,7 @@
           </form>
         {% endif %}
         <a class="btn btn--go" id="next-round-link" href="#" hidden>Til næste runde</a>
-        <a class="btn" href="{{ url_for('home') }}">Ny lobby</a>
+        {% if not screen %}<a class="btn" href="{{ url_for('home') }}">Ny lobby</a>{% endif %}
       </div>
     </div>
 
@@ -231,11 +255,13 @@
   <aside class="card crew" aria-labelledby="crew-title">
     <h2 class="crew__title" id="crew-title"><span id="player-count">Spillere</span></h2>
     <ul class="crew__list" id="player-list"></ul>
+    {% if not screen %}
     <form method="post" action="{{ url_for('leave', code=lobby.code) }}" id="leave-form" class="crew__leave"
           data-confirm="Forlad lobbyen?">
       <input type="hidden" name="csrf" value="{{ csrf_token() }}">
       <button class="btn btn--quiet" type="submit">Forlad lobbyen</button>
     </form>
+    {% endif %}
   </aside>
 </div>
 {% endblock %}

@@ -11,6 +11,8 @@
 <meta name="csrf" content="{{ csrf_token() }}">
 <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
 <link rel="stylesheet" href="{{ asset('styles.css') }}">
+{# Uden defer: "Animationer: fra" skal gaelde fra foerste billede. #}
+<script src="{{ asset('prefs.js') }}"></script>
 <script src="{{ asset('common.js') }}" defer></script>
 {% block scripts %}{% endblock %}
 </head>
@@ -125,7 +127,16 @@
   <a class="wordmark" href="{{ url_for('home') }}" aria-label="Songwars — forsiden">
     <span class="flame" aria-hidden="true"></span><span>songwars</span>
   </a>
-  {% block topright %}{% endblock %}
+  <div class="top__right">
+    {% block topright %}{% endblock %}
+    {# Indstillingerne - lyd, animationer, vibration - fra alle sider. #}
+    <button class="gear" id="prefs-btn" type="button" aria-expanded="false" aria-controls="prefs-pop"
+            aria-label="Indstillinger"><span class="gear__icon" aria-hidden="true"></span></button>
+    <div class="prefs-pop card" id="prefs-pop" hidden>
+      <p class="field__label">Indstillinger</p>
+      <div class="prefs" data-prefs></div>
+    </div>
+  </div>
 </header>
 
 {% with messages = get_flashed_messages() %}

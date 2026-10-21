@@ -41,17 +41,18 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import audio
 from core import (
-    BEATS, CLEANUP_EVERY, CODE_LEN, CODE_RE, COOKIE_SECURE, CSP,
-    EXTRA_SECONDS, GRACE_SECONDS, HEX_RE, KEEP_SECONDS, MAX_BEAT,
+    AVATARS, BEATS, COLOR_NAMES, COLORS, CLEANUP_EVERY, CODE_LEN, CODE_RE,
+    COOKIE_SECURE, CSP, GRACE_SECONDS, HEX_RE, KEEP_SECONDS, MAX_BEAT,
     MAX_PLAYERS, MAX_UPLOAD, MINUTES_RANGE, NAME_MAX, POLL_TOUCH_SECONDS,
-    ROOT, SECRET_KEY, SPIN_INTRO, SUBS, TEAM_RANGE, TMP, check_config,
-    clean_text, client_ip, clock, fail, json_error, now, remove_file,
-    save_upload, too_many, wants_json,
+    ROOT, SECRET_KEY, SUBS, TEAM_RANGE, TMP, check_config,
+    clean_text, client_ip, clock, fail, json_error, now, read_avatar,
+    remove_file, save_upload, too_many, wants_json,
 )
 from database import connect, db, init_db, limited
 from game import (
-    advance, closes_at, genres_with_beats, make_teams, new_code, phase_of,
-    spin, start_problem, state_for, team_genre, team_on_turn,
+    VIEWER, advance, begin_round, closes_at, genres_with_beats, new_code,
+    open_voting, phase_of, spin, start_problem, state_for, team_genre,
+    team_on_turn,
 )
 from admin import bp as admin_bp, is_admin
 
@@ -236,6 +237,54 @@ def carried_over(lobby, depth):
     return row
 
 
+def screen_in(lobby, depth=0):
+    """Storskaermen i den her lobby, ifoelge cookien ("s": {kode: id}). En
+    skaerm foelger med i nye runder ligesom spillerne (screens.from_id)."""
+    sid = session.get("s", {}).get(lobby["code"])
+    if sid is not None:
+        row = db().execute("SELECT * FROM screens WHERE id = ? AND lobby_id = ?",
+                           (sid, lobby["id"])).fetchone()
+        if row is not None:
+            return row
+    if not lobby["parent_id"] or depth > 20:
+        return None
+    parent = db().execute("SELECT * FROM lobbies WHERE id = ?", (lobby["parent_id"],)).fetchone()
+    prev = screen_in(parent, depth + 1) if parent is not None else None
+    if prev is None:
+        return None
+    row = db().execute("SELECT * FROM screens WHERE lobby_id = ? AND from_id = ?",
+                       (lobby["id"], prev["id"])).fetchone()
+    if row is not None:
+        remember_screen(lobby["code"], row["id"])
+    return row
+
+
+def remember_screen(code, screen_id):
+    mine = dict(session.get("s", {}))
+    mine[code] = screen_id
+    if len(mine) > 12:
+        for old in list(mine)[:-12]:
+            mine.pop(old)
+    session["s"] = mine
+    session.permanent = True
+
+
+def viewer_or_403(lobby):
+    """Storskaermen - eller en spiller i lobbyen, der aabner den paa sin egen
+    skaerm. Den sidste faar en skaerm med det samme, saa den ogsaa foelger
+    med i naeste runde."""
+    screen = screen_in(lobby)
+    if screen is not None:
+        return screen
+    if me_in(lobby) is None:
+        abort(403)
+    sid = db().execute("INSERT INTO screens (lobby_id, created_at) VALUES (?, ?)",
+                       (lobby["id"], now())).lastrowid
+    db().commit()
+    remember_screen(lobby["code"], sid)
+    return db().execute("SELECT * FROM screens WHERE id = ?", (sid,)).fetchone()
+
+
 def remember(code, player_id):
     mine = dict(session.get("p", {}))
     mine[code] = player_id
@@ -252,7 +301,8 @@ def home():
     return render_template("home.html", genres=genres_with_beats(db()),
                            code=norm_code(request.args.get("kode")),
                            minutes_range=MINUTES_RANGE, team_range=TEAM_RANGE,
-                           name_max=NAME_MAX, code_len=CODE_LEN)
+                           name_max=NAME_MAX, code_len=CODE_LEN,
+                           avatars=AVATARS, colors=[(c, COLOR_NAMES[c]) for c in COLORS])
 
 
 def read_settings(form):
@@ -271,6 +321,7 @@ def read_settings(form):
 
 @app.post("/ny")
 def create_lobby():
+    avatar, color = read_avatar(request.form)
     if limited("create", client_ip()):
         return too_many("Du har oprettet mange lobbyer på kort tid. Vent lidt.")
     name = clean_text(request.form.get("name"), NAME_MAX)
@@ -288,11 +339,47 @@ def create_lobby():
         (code, settings["minutes"], settings["team_size"], t))
     lid = cur.lastrowid
     pid = conn.execute(
-        "INSERT INTO players (lobby_id, name, joined_at, seen_at) VALUES (?,?,?,?)",
-        (lid, name, t, t)).lastrowid
+        "INSERT INTO players (lobby_id, name, joined_at, seen_at, avatar, color) VALUES (?,?,?,?,?,?)",
+        (lid, name, t, t, avatar, color)).lastrowid
     conn.execute("UPDATE lobbies SET owner_id = ? WHERE id = ?", (pid, lid))
     conn.commit()
     remember(code, pid)
+    return redirect(url_for("lobby_page", code=code))
+
+
+@app.post("/alene")
+def play_alone():
+    """Singleplayer fra forsiden: en lobby med en spiller, der gaar i gang
+    med det samme. Hjulet, beatet og uret er de samme - der er bare ingen
+    afstemning."""
+    if limited("create", client_ip()):
+        return too_many("Du har startet mange runder på kort tid. Vent lidt.")
+    name = clean_text(request.form.get("name"), NAME_MAX)
+    if not name:
+        return fail(400, "Skriv et kaldenavn.", url_for("home") + "#spil")
+    settings, error = read_settings(dict(request.form, team_size="1"))
+    if error:
+        return fail(400, error, url_for("home") + "#spil")
+    avatar, color = read_avatar(request.form)
+    conn = db()
+    t = now()
+    code = new_code(conn)
+    lid = conn.execute(
+        "INSERT INTO lobbies (code, minutes, team_size, created_at) VALUES (?,?,?,?)",
+        (code, settings["minutes"], 1, t)).lastrowid
+    pid = conn.execute(
+        "INSERT INTO players (lobby_id, name, joined_at, seen_at, avatar, color) VALUES (?,?,?,?,?,?)",
+        (lid, name, t, t, avatar, color)).lastrowid
+    conn.execute("UPDATE lobbies SET owner_id = ? WHERE id = ?", (pid, lid))
+    conn.commit()
+    remember(code, pid)
+    lobby = conn.execute("SELECT * FROM lobbies WHERE id = ?", (lid,)).fetchone()
+    players = conn.execute("SELECT * FROM players WHERE lobby_id = ?", (lid,)).fetchall()
+    problem = start_problem(conn, lobby, players, practice=True)
+    if problem:
+        flash(problem)
+    else:
+        begin_round(conn, lobby, players, practice=True)
     return redirect(url_for("lobby_page", code=code))
 
 
@@ -326,15 +413,59 @@ def join():
         return fail(409, "Lobbyen er fuld ({0} spillere).".format(MAX_PLAYERS), back)
 
     t = now()
+    avatar, color = read_avatar(request.form)
     try:
         pid = conn.execute(
-            "INSERT INTO players (lobby_id, name, joined_at, seen_at) VALUES (?,?,?,?)",
-            (lobby["id"], name, t, t)).lastrowid
+            "INSERT INTO players (lobby_id, name, joined_at, seen_at, avatar, color) VALUES (?,?,?,?,?,?)",
+            (lobby["id"], name, t, t, avatar, color)).lastrowid
         conn.commit()
     except sqlite3.IntegrityError:
         return fail(409, "Navnet {0} er taget i den lobby. Vælg et andet.".format(name), back)
     remember(code, pid)
     return redirect(url_for("lobby_page", code=code))
+
+
+@app.post("/skaerm")
+def attach_screen():
+    """Koble en storskaerm paa en lobby med koden. Det kan man saa laenge
+    lobbyen venter paa spillere - samme regel som for at joine. Er man selv
+    med i lobbyen, kan man ogsaa bagefter."""
+    code = norm_code(request.form.get("code"))
+    back = url_for("home", kode=code) if code else url_for("home")
+    if limited("join", client_ip()):
+        return too_many()
+    if not code:
+        return fail(400, "Koden er {0} tegn — bogstaver og tal.".format(CODE_LEN), back)
+    row = db().execute("SELECT * FROM lobbies WHERE code = ?", (code,)).fetchone()
+    if row is None:
+        return fail(404, "Der er ingen lobby med koden {0}.".format(code), back)
+    lobby = advance(row)
+    if screen_in(lobby) is None and me_in(lobby) is None:
+        if lobby["status"] != "lobby":
+            return fail(409, "Runden i {0} er allerede gået i gang. En storskærm skal kobles på, "
+                             "før runden starter.".format(code), back)
+        sid = db().execute("INSERT INTO screens (lobby_id, created_at) VALUES (?, ?)",
+                           (lobby["id"], now())).lastrowid
+        db().commit()
+        remember_screen(code, sid)
+    return redirect(url_for("screen_page", code=code))
+
+
+@app.get("/l/<code>/skaerm")
+def screen_page(code):
+    lobby = lobby_or_404(code)
+    viewer_or_403(lobby)
+    return render_template("lobby.html", lobby=lobby, me=VIEWER, screen=True,
+                           genres=[], minutes_range=MINUTES_RANGE, team_range=TEAM_RANGE,
+                           max_upload=MAX_UPLOAD)
+
+
+@app.get("/l/<code>/skaerm/state")
+def screen_state(code):
+    lobby = lobby_or_404(code)
+    if screen_in(lobby) is None:
+        return json_error(403, "Skærmen er ikke koblet på den lobby.", gone=True)
+    return jsonify(state_for(db(), lobby, VIEWER, now(), screen=True))
 
 
 def member_or_403(lobby):
@@ -365,7 +496,7 @@ def lobby_page(code):
         return render_template("error.html", title="Runden er i gang",
                                message="Lobbyen {0} er allerede gået i gang, så der kan "
                                        "ikke komme flere med.".format(lobby["code"])), 409
-    return render_template("lobby.html", lobby=lobby, me=me,
+    return render_template("lobby.html", lobby=lobby, me=me, screen=False,
                            genres=genres_with_beats(db()),
                            minutes_range=MINUTES_RANGE, team_range=TEAM_RANGE,
                            max_upload=MAX_UPLOAD)
@@ -459,27 +590,12 @@ def start(code):
 
     players = conn.execute("SELECT * FROM players WHERE lobby_id = ? ORDER BY joined_at",
                            (lobby["id"],)).fetchall()
-    problem = start_problem(conn, lobby, players)
+    # "Spil alene": ejeren er alene i lobbyen og vil ikke vente.
+    practice = request.form.get("solo") == "1"
+    problem = start_problem(conn, lobby, players, practice)
     if problem:
         return fail(409, problem, back)
-
-    t = now()
-    won = conn.execute(
-        "UPDATE lobbies SET status = 'spinning', started_at = ?, turn_at = ?"
-        " WHERE id = ? AND status = 'lobby'",
-        (t, t + SPIN_INTRO, lobby["id"])).rowcount
-    if not won:                                       # dobbeltklik
-        conn.rollback()
-        return redirect(back)
-    teams = make_teams([p["id"] for p in players], lobby["team_size"])
-    # Hvem der drejer hjulet foerst, er trukket for sig - ikke holdnumrene.
-    order = list(range(1, len(teams) + 1))
-    secrets.SystemRandom().shuffle(order)
-    for number, members in enumerate(teams, 1):
-        tid = conn.execute("INSERT INTO teams (lobby_id, number, spin_order) VALUES (?, ?, ?)",
-                           (lobby["id"], number, order[number - 1])).lastrowid
-        conn.executemany("UPDATE players SET team_id = ? WHERE id = ?", [(tid, pid) for pid in members])
-    conn.commit()
+    begin_round(conn, lobby, players, practice)
     return redirect(back)
 
 
@@ -534,13 +650,22 @@ def next_round(code):
                            (lobby["id"],)).fetchall()
     for i, pl in enumerate(players):
         pid = conn.execute(
-            "INSERT INTO players (lobby_id, name, joined_at, seen_at, from_id) VALUES (?,?,?,?,?)",
-            (lid, pl["name"], t + i / 1000, pl["seen_at"], pl["id"])).lastrowid
+            "INSERT INTO players (lobby_id, name, joined_at, seen_at, from_id, avatar, color)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (lid, pl["name"], t + i / 1000, pl["seen_at"], pl["id"], pl["avatar"], pl["color"])).lastrowid
         if pl["id"] == me["id"]:
             owner = pid
     conn.execute("UPDATE lobbies SET owner_id = ? WHERE id = ?", (owner, lid))
+    conn.execute("INSERT INTO screens (lobby_id, from_id, created_at)"
+                 " SELECT ?, id, ? FROM screens WHERE lobby_id = ?", (lid, t, lobby["id"]))
     conn.commit()
     remember(new, owner)
+    if lobby["practice"]:
+        # Singleplayer: ingen at vente paa - hjulet gaar i gang med det samme.
+        fresh = conn.execute("SELECT * FROM lobbies WHERE id = ?", (lid,)).fetchone()
+        players = conn.execute("SELECT * FROM players WHERE lobby_id = ?", (lid,)).fetchall()
+        if start_problem(conn, fresh, players, practice=True) is None:
+            begin_round(conn, fresh, players, practice=True)
     return redirect(url_for("lobby_page", code=new))
 
 
@@ -556,12 +681,18 @@ def finish_phase(code):
     conn = db()
     phase = phase_of(lobby)
     t = now()
-    if phase in ("reveal", "make"):
+    if lobby["practice"] and phase in ("reveal", "make", "extra"):
+        if phase == "reveal":
+            conn.execute("UPDATE lobbies SET make_at = MIN(make_at, ?), deadline = MIN(deadline, ?)"
+                         " WHERE id = ?", (t, t, lobby["id"]))
+        elif phase == "make":
+            conn.execute("UPDATE lobbies SET deadline = ? WHERE id = ?", (t, lobby["id"]))
+        open_voting(conn, lobby["id"], t)
+    elif phase in ("reveal", "make"):
         conn.execute("UPDATE lobbies SET make_at = MIN(make_at, ?), deadline = ?"
                      " WHERE id = ? AND status = 'running'", (t, t, lobby["id"]))
     elif phase == "extra":
-        conn.execute("UPDATE lobbies SET deadline = ? WHERE id = ? AND status = 'running'",
-                     (t - EXTRA_SECONDS - GRACE_SECONDS, lobby["id"]))
+        open_voting(conn, lobby["id"], t)
     elif phase == "vote":
         conn.execute("UPDATE lobbies SET status = 'done', done_at = ? WHERE id = ? AND status = 'voting'",
                      (t, lobby["id"]))
@@ -659,7 +790,9 @@ def track_file(code, sid):
     """Afspilning. Under afstemningen er der intet i svaret der siger hvem
     der lavede nummeret - ingen filnavne, kun et tilfaeldigt id."""
     lobby = lobby_or_404(code)
-    me = member_or_403(lobby)
+    me = me_in(lobby) or (screen_in(lobby) and VIEWER)
+    if not me:
+        abort(403)
     if not HEX_RE.fullmatch(sid):
         abort(404)
     sub = db().execute("SELECT * FROM submissions WHERE id = ? AND lobby_id = ?",

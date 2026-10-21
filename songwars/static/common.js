@@ -17,6 +17,226 @@
 
   var calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+  /* ---------- Indstillinger ----------
+     Lyd, animationer og vibration. Gemt i browseren (sw-prefs) - de gaelder
+     kun den her browser. Fra en aeldre version: "sw-sound" = "off". prefs.js
+     i <head> saetter html[data-motion] foer siden tegnes. */
+
+  var PREFS_KEY = "sw-prefs";
+  var prefs = { sound: true, motion: true, vibrate: true };
+  try {
+    var saved = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+    Object.keys(prefs).forEach(function (k) { if (typeof saved[k] === "boolean") prefs[k] = saved[k]; });
+    if (!("sound" in saved) && localStorage.getItem("sw-sound") === "off") prefs.sound = false;
+  } catch (e) {}
+  var prefListeners = [];
+
+  function setPref(key, value) {
+    prefs[key] = value;
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) {}
+    document.documentElement.dataset.motion = prefs.motion ? "on" : "off";
+    prefListeners.forEach(function (fn) { fn(prefs); });
+    document.querySelectorAll("[data-prefs]").forEach(renderPrefs);
+  }
+  document.documentElement.dataset.motion = prefs.motion ? "on" : "off";
+
+  // "Animationer: fra" - intet bevaeger sig, heller ikke hjulet eller teksten.
+  function still() { return !prefs.motion; }
+
+  var canVibrate = typeof navigator.vibrate === "function";
+
+  // Telefonen vibrerer kun, naar man har roert siden - foer det afviser
+  // browseren det (og skriver en fejl i konsollen).
+  function buzz(pattern) {
+    var touched = !navigator.userActivation || navigator.userActivation.hasBeenActive;
+    if (prefs.vibrate && canVibrate && touched) {
+      try { navigator.vibrate(pattern); } catch (e) {}
+    }
+  }
+
+  var PREF_ROWS = [
+    { key: "sound", label: "Lyd", note: "Klik, blip og fanfarer. Aldrig mens der stemmes — så hører man numrene." },
+    { key: "motion", label: "Animationer", note: "Fra: intet bevæger sig — hjulet springer direkte til genren, og teksten står der med det samme." },
+    { key: "vibrate", label: "Vibration", note: "Når det er din tur, og når tiden er ved at løbe ud.", only: canVibrate }
+  ];
+
+  function renderPrefs(box) {
+    box.textContent = "";
+    PREF_ROWS.forEach(function (row) {
+      if (row.only === false) return;
+      var line = document.createElement("div");
+      line.className = "pref";
+      var text = document.createElement("div");
+      text.className = "pref__text";
+      var label = document.createElement("span");
+      label.className = "pref__label";
+      label.textContent = row.label;
+      label.id = "pref-" + row.key + "-" + Math.random().toString(36).slice(2, 7);
+      var note = document.createElement("span");
+      note.className = "pref__note";
+      note.textContent = row.note;
+      text.appendChild(label);
+      text.appendChild(note);
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "toggle" + (prefs[row.key] ? " is-on" : "");
+      btn.setAttribute("role", "switch");
+      btn.setAttribute("aria-checked", prefs[row.key] ? "true" : "false");
+      btn.setAttribute("aria-labelledby", label.id);
+      btn.dataset.pref = row.key;
+      var knob = document.createElement("span");
+      knob.className = "toggle__text";
+      knob.textContent = prefs[row.key] ? "Til" : "Fra";
+      btn.appendChild(knob);
+      line.appendChild(text);
+      line.appendChild(btn);
+      box.appendChild(line);
+    });
+  }
+
+  document.addEventListener("click", function (event) {
+    var btn = event.target.closest && event.target.closest("[data-pref]");
+    if (!btn) return;
+    var key = btn.dataset.pref;
+    setPref(key, !prefs[key]);
+    if (key === "sound" && prefs.sound) { sound.unlock(); sound.ok(); }
+    if (key === "vibrate" && prefs.vibrate) buzz(40);
+    var again = document.querySelector('[data-pref="' + key + '"]');
+    if (again && btn.isConnected === false) again.focus();
+  });
+
+  document.querySelectorAll("[data-prefs]").forEach(renderPrefs);
+
+  // Tandhjulet i toppen: indstillingerne som et lille panel.
+  var prefsBtn = document.getElementById("prefs-btn");
+  var prefsPop = document.getElementById("prefs-pop");
+  function closePrefs() {
+    if (!prefsPop || prefsPop.hidden) return;
+    prefsPop.hidden = true;
+    prefsBtn.setAttribute("aria-expanded", "false");
+  }
+  if (prefsBtn && prefsPop) {
+    prefsBtn.addEventListener("click", function () {
+      var open = prefsPop.hidden;
+      prefsPop.hidden = !open;
+      prefsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) { var first = prefsPop.querySelector("button"); if (first) first.focus(); }
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !prefsPop.hidden) { e.preventDefault(); closePrefs(); prefsBtn.focus(); }
+    });
+    document.addEventListener("click", function (e) {
+      if (!prefsPop.hidden && !prefsPop.contains(e.target) && !prefsBtn.contains(e.target)) closePrefs();
+    });
+  }
+
+  /* ---------- Lyd ----------
+     Korte, kantede menulyde som paa en PS2. Det hele laves med WebAudio -
+     ingen lydfiler. Browseren tillader foerst lyd efter et klik eller et
+     tastetryk paa siden. */
+
+  var sound = (function () {
+    var ctx = null, out = null, lastTick = 0;
+
+    function unlock() {
+      if (!prefs.sound) return;
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      try {
+        if (!ctx) {
+          ctx = new AC();
+          out = ctx.createGain();
+          out.gain.value = 0.7;
+          out.connect(ctx.destination);
+        }
+        if (ctx.state === "suspended") ctx.resume();
+      } catch (e) { ctx = null; }
+    }
+    document.addEventListener("pointerdown", unlock, { passive: true });
+    document.addEventListener("keydown", unlock);
+
+    function ready() { return prefs.sound && ctx && ctx.state === "running"; }
+
+    function tone(freq, type, at, dur, vol, opts) {
+      opts = opts || {};
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, at);
+      if (opts.to) o.frequency.exponentialRampToValueAtTime(opts.to, at + dur);
+      if (opts.detune) o.detune.value = opts.detune;
+      var attack = opts.attack || 0.006;
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(vol, at + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+      o.connect(g);
+      g.connect(out);
+      o.start(at);
+      o.stop(at + dur + 0.05);
+    }
+
+    function play(fn) { if (ready()) fn(ctx.currentTime); }
+
+    return {
+      unlock: unlock,
+      ready: ready,
+      // Et klik pr. pind paa hjulet - aldrig taettere end 30 ms.
+      tick: function () {
+        if (!ready()) return;
+        var now = ctx.currentTime;
+        if (now - lastTick < 0.03) return;
+        lastTick = now;
+        tone(1650 + Math.random() * 140, "square", now, 0.024, 0.03);
+      },
+      release: function () { play(function (n) {
+        tone(660, "square", n, 0.06, 0.035);
+        tone(990, "square", n + 0.07, 0.08, 0.035);
+      }); },
+      // Den dybe "boot"-tone: to lave sinustoner, en bloed trekant og en glimmer.
+      land: function () { play(function (n) {
+        tone(55, "sine", n, 2.4, 0.22, { attack: 0.03 });
+        tone(110, "sine", n, 2.0, 0.12, { attack: 0.03 });
+        tone(220, "triangle", n, 1.6, 0.05, { attack: 0.05, detune: 7 });
+        tone(1320, "sine", n + 0.05, 1.4, 0.022, { attack: 0.08, to: 1760 });
+        tone(880, "square", n, 0.09, 0.03);
+      }); },
+      turn: function () { play(function (n) {
+        tone(880, "square", n, 0.07, 0.03);
+        tone(1320, "square", n + 0.09, 0.1, 0.03);
+      }); },
+      ok: function () { play(function (n) { tone(1046, "square", n, 0.06, 0.025); }); },
+      // Nedtaelling: et tik hvert sekund de sidste ti, hoejere de sidste tre.
+      count: function (secs) { play(function (n) {
+        if (secs <= 3) tone(1480, "square", n, 0.09, 0.04);
+        else tone(990, "square", n, 0.035, 0.022);
+      }); },
+      // Afleveret: tre blip opad.
+      received: function () { play(function (n) {
+        tone(784, "square", n, 0.06, 0.03);
+        tone(1046, "square", n + 0.07, 0.06, 0.03);
+        tone(1568, "square", n + 0.14, 0.12, 0.03);
+      }); },
+      // Den ekstra tid starter: en lav to-tone-alarm.
+      alarm: function () { play(function (n) {
+        for (var k = 0; k < 3; k++) {
+          tone(440, "sawtooth", n + k * 0.32, 0.14, 0.03);
+          tone(330, "sawtooth", n + k * 0.32 + 0.16, 0.14, 0.03);
+        }
+      }); },
+      // Genren afsloeres.
+      reveal: function () { play(function (n) {
+        tone(110, "sine", n, 1.2, 0.16, { attack: 0.02 });
+        tone(660, "triangle", n, 0.8, 0.04, { to: 990, attack: 0.02 });
+      }); },
+      // Resultatet: en kort fanfare - C, E, G og en lang C.
+      fanfare: function () { play(function (n) {
+        [523, 659, 784].forEach(function (f, k) { tone(f, "square", n + k * 0.12, 0.11, 0.035); });
+        tone(1046, "square", n + 0.36, 0.5, 0.04);
+        tone(523, "triangle", n + 0.36, 0.7, 0.05);
+      }); }
+    };
+  })();
+
+
   /* ---------- Formularer og knapper ---------- */
 
   document.addEventListener("submit", function (event) {
@@ -100,6 +320,7 @@
   function typeInto(node, text, done, speed) {
     clearInterval(node._typer);
     clearTimeout(node._caretOff);
+    if (still()) { node.textContent = text; if (done) done(); return; }
     // Hvert bogstav i sit eget span, usynligt fra start. Saa er teksten
     // lige bred hele vejen, og centreret tekst staar stille mens den skrives.
     node.textContent = "";
@@ -213,7 +434,9 @@
     wave(node, loop);
   }
 
-  window.SW = { say: say, type: type, wave: wave, waveText: waveText };
+  window.SW = { say: say, type: type, wave: wave, waveText: waveText, sound: sound, buzz: buzz,
+                still: still, prefs: function () { return prefs; }, setPref: setPref,
+                onPrefs: function (fn) { prefListeners.push(fn); } };
 
   document.querySelectorAll("[data-wave]").forEach(function (node) {
     wave(node, node.dataset.wave === "loop");
@@ -320,7 +543,7 @@
   /* Gnister der svaever op fra jorden, langsomt og uden at roere ved
      noget. De laves ikke ved reduceret bevaegelse. */
   function scatterSparks(box) {
-    if (calm) return;
+    if (calm || still()) return;
     var count = window.innerWidth < 600 ? 7 : 12;
     for (var i = 0; i < count; i++) {
       var spark = document.createElement("span");
@@ -338,7 +561,7 @@
   /* Parallax: lagene i baggrunden flytter sig lidt med musen - byen mindst,
      traeet mest. Kun med en rigtig mus, og kun naar bevaegelse er tilladt. */
   function parallax(scene) {
-    if (calm || !window.matchMedia("(pointer: fine)").matches) return;
+    if (calm || still() || !window.matchMedia("(pointer: fine)").matches) return;
     var pending = false, px = 0, py = 0;
     window.addEventListener("pointermove", function (e) {
       px = e.clientX / window.innerWidth - 0.5;
@@ -360,7 +583,14 @@
   }
 
   var leaves = document.getElementById("leaves");
-  if (leaves) scatterLeaves(leaves);
+  var sceneStarted = false;
+  function startScene() {
+    if (sceneStarted || still()) return;
+    sceneStarted = true;
+    if (leaves) scatterLeaves(leaves);
+    var townNode = document.querySelector(".scene__town");
+    if (townNode) startCrows(townNode);
+  }
 
   /* ---------- Kragerne ----------
      En eller to ad gangen. De flyver ind i en bue, lander paa en tagkant
@@ -528,6 +758,6 @@
     requestAnimationFrame(frame);
   }
 
-  var town = document.querySelector(".scene__town");
-  if (town) startCrows(town);
+  startScene();
+  prefListeners.push(startScene);
 })();

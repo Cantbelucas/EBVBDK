@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS lobbies (
     turn_at     REAL,                    -- hjulet: hvornaar naeste tur begynder
     vote_deadline REAL,                  -- afstemningen lukker af sig selv
     parent_id   INTEGER,                 -- forrige runde i samme serie
+    practice    INTEGER NOT NULL DEFAULT 0,   -- 1 = singleplayer: ingen afstemning
     round_no    INTEGER NOT NULL DEFAULT 1,
     created_at  REAL NOT NULL
 );
@@ -75,6 +76,8 @@ CREATE TABLE IF NOT EXISTS players (
     joined_at   REAL NOT NULL,
     seen_at     REAL NOT NULL,
     from_id     INTEGER,                 -- samme spiller i forrige runde
+    avatar      TEXT,                    -- emoji fra core.AVATARS
+    color       TEXT,                    -- noegle i core.COLORS
     UNIQUE (lobby_id, name)
 );
 
@@ -113,6 +116,14 @@ CREATE TABLE IF NOT EXISTS imports (
     updated_at  REAL NOT NULL
 );
 
+-- Storskaerme: en skaerm der viser lobbyen uden at vaere en spiller.
+CREATE TABLE IF NOT EXISTS screens (
+    id          INTEGER PRIMARY KEY,
+    lobby_id    INTEGER NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
+    from_id     INTEGER,                 -- samme skaerm i forrige runde
+    created_at  REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS hits (
     key   TEXT NOT NULL,
     at    REAL NOT NULL
@@ -148,8 +159,9 @@ def db():
 # EXISTS roerer ikke en tabel der findes, saa de tilfoejes her.
 COLUMNS = {
     "lobbies": [("turn_at", "REAL"), ("vote_deadline", "REAL"), ("parent_id", "INTEGER"),
-                ("round_no", "INTEGER NOT NULL DEFAULT 1")],
-    "players": [("from_id", "INTEGER")],
+                ("round_no", "INTEGER NOT NULL DEFAULT 1"),
+                ("practice", "INTEGER NOT NULL DEFAULT 0")],
+    "players": [("from_id", "INTEGER"), ("avatar", "TEXT"), ("color", "TEXT")],
     "beats": [("source", "TEXT")],              # youtube:<id>, saa samme video ikke kommer to gange
     "teams": [
         ("spin_order", "INTEGER"),

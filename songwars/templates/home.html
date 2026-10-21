@@ -2,61 +2,190 @@
 {% block bodyclass %}is-home{% endblock %}
 {% block mainclass %}wrap wrap--wide{% endblock %}
 
+{% block scripts %}
+<script src="{{ asset('home.js') }}" defer></script>
+{% endblock %}
+
 {% block body %}
 {# Bogstaverne popper ind efter tur og boelger bagefter (common.js). #}
 <h1 class="hero"><span class="hero__title loud" data-wave="loop">songwars</span></h1>
 
-<div class="doors">
-  <form class="card door" method="post" action="{{ url_for('join') }}">
-    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-    <h2 class="card__title">Kom med i en lobby</h2>
+{# Startmenuen, som paa en konsol: Spil, Tilpas, Indstillinger. home.js viser
+   den og et panel ad gangen (#spil, #tilpas, #indstillinger). Et link med
+   ?kode= - eller en fejl fra en formular - aabner "Spil" med det samme.
+   Uden JavaScript er menuen skjult, og "Spil" staar fremme. #}
+{% set flashed = get_flashed_messages() %}
+<div class="home-start" id="start" data-open="{{ 'spil' if code or flashed else '' }}">
 
-    <label class="field">
-      <span class="field__label">Lobbykode</span>
-      <input class="input input--code" name="code" value="{{ code }}" required
-             maxlength="{{ code_len }}" minlength="{{ code_len }}"
-             autocomplete="off" autocapitalize="characters" spellcheck="false"
-             inputmode="text" data-upper>
-    </label>
+  <nav class="menu" id="menu" aria-label="Menu" hidden>
+    <ul class="menu__list">
+      <li><a class="menu__item" href="#spil">
+        <span class="menu__label">Spil</span>
+        <span class="menu__hint">Kom med i en lobby, opret en, eller spil alene</span>
+      </a></li>
+      <li><a class="menu__item" href="#tilpas">
+        <span class="menu__label">Tilpas</span>
+        <span class="menu__hint">Kaldenavn, avatar og farve</span>
+      </a></li>
+      <li><a class="menu__item" href="#indstillinger">
+        <span class="menu__label">Indstillinger</span>
+        <span class="menu__hint">Lyd, animationer og vibration</span>
+      </a></li>
+    </ul>
+    <p class="menu__me" id="menu-me" hidden></p>
+    <p class="menu__keys" aria-hidden="true">↑ ↓ vælg · Enter åbn · Esc tilbage</p>
+  </nav>
 
-    <label class="field">
-      <span class="field__label">Kaldenavn</span>
-      <input class="input" name="name" required maxlength="{{ name_max }}"
-             autocomplete="nickname">
-    </label>
+  {# ---------- Spil ---------- #}
+  <section class="panel" id="spil" aria-label="Spil">
+    <a class="panel__back" href="#" hidden>‹ Tilbage</a>
 
-    <button class="btn btn--go door__go" type="submit">Kom med</button>
-  </form>
+    <div class="doors">
+      <form class="card door" method="post" action="{{ url_for('join') }}" data-profile>
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="avatar" value="">
+        <input type="hidden" name="color" value="">
+        <h2 class="card__title">Kom med i en lobby</h2>
 
-  <form class="card door" method="post" action="{{ url_for('create_lobby') }}">
-    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-    <h2 class="card__title">Opret en lobby</h2>
+        <label class="field">
+          <span class="field__label">Lobbykode</span>
+          <input class="input input--code" name="code" value="{{ code }}" required
+                 maxlength="{{ code_len }}" minlength="{{ code_len }}"
+                 autocomplete="off" autocapitalize="characters" spellcheck="false"
+                 inputmode="text" data-upper>
+        </label>
 
-    <label class="field">
-      <span class="field__label">Kaldenavn</span>
-      <input class="input" name="name" required maxlength="{{ name_max }}"
-             autocomplete="nickname">
-    </label>
+        <label class="field">
+          <span class="field__label">Kaldenavn</span>
+          <input class="input" name="name" required maxlength="{{ name_max }}"
+                 autocomplete="nickname">
+        </label>
 
-    <div class="pair">
-      <label class="field">
-        <span class="field__label">Tid i minutter</span>
-        <input class="input" type="number" name="minutes" value="30"
-               min="{{ minutes_range[0] }}" max="{{ minutes_range[1] }}" required>
-      </label>
-      <label class="field">
-        <span class="field__label">Holdstørrelse</span>
-        <input class="input" type="number" name="team_size" value="1"
-               min="{{ team_range[0] }}" max="{{ team_range[1] }}" required>
-      </label>
+        <button class="btn btn--go door__go" type="submit">Kom med</button>
+      </form>
+
+      <form class="card door" method="post" action="{{ url_for('create_lobby') }}" data-profile>
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="avatar" value="">
+        <input type="hidden" name="color" value="">
+        <h2 class="card__title">Opret en lobby</h2>
+
+        <label class="field">
+          <span class="field__label">Kaldenavn</span>
+          <input class="input" name="name" required maxlength="{{ name_max }}"
+                 autocomplete="nickname">
+        </label>
+
+        <div class="pair">
+          <label class="field">
+            <span class="field__label">Tid i minutter</span>
+            <input class="input" type="number" name="minutes" value="30"
+                   min="{{ minutes_range[0] }}" max="{{ minutes_range[1] }}" required>
+          </label>
+          <label class="field">
+            <span class="field__label">Holdstørrelse</span>
+            <input class="input" type="number" name="team_size" value="1"
+                   min="{{ team_range[0] }}" max="{{ team_range[1] }}" required>
+          </label>
+        </div>
+
+        {% if not genres %}
+          <p class="note note--warn">Der er ingen beats endnu. Runden kan først starte, når en admin har lagt nogle op.</p>
+        {% endif %}
+
+        <button class="btn door__go" type="submit">Opret lobby</button>
+      </form>
     </div>
 
-    {% if not genres %}
-      <p class="note note--warn">Der er ingen beats endnu. Runden kan først starte, når en admin har lagt nogle op.</p>
-    {% endif %}
+    {# Singleplayer: hjulet, beatet og uret - uden afstemning. Gaar i gang
+       med det samme. #}
+    <form class="card solo-door" method="post" action="{{ url_for('play_alone') }}" data-profile>
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="avatar" value="">
+      <input type="hidden" name="color" value="">
+      <div class="solo-door__text">
+        <h2 class="card__title">Spil alene</h2>
+        <p class="muted">Drej hjulet, få en genre og et beat, og se om du når det inden tiden. Ingen afstemning — bare dig og uret.</p>
+      </div>
+      <label class="field">
+        <span class="field__label">Kaldenavn</span>
+        <input class="input" name="name" required maxlength="{{ name_max }}" autocomplete="nickname">
+      </label>
+      <label class="field">
+        <span class="field__label">Tid i minutter</span>
+        <input class="input" type="number" name="minutes" value="20"
+               min="{{ minutes_range[0] }}" max="{{ minutes_range[1] }}" required>
+      </label>
+      <button class="btn btn--go solo-door__go" type="submit">Spil alene</button>
+    </form>
 
-    <button class="btn door__go" type="submit">Opret lobby</button>
-  </form>
+    {# En skaerm der viser lobbyen i stort - et fjernsyn i stuen. Den er
+       ikke en spiller, og den kobles paa foer runden starter. #}
+    <form class="card screen-attach" method="post" action="{{ url_for('attach_screen') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <div class="screen-attach__text">
+        <h2 class="card__title">Storskærm</h2>
+        <p class="muted">Vis hjulet, uret og resultatet i stort på et fjernsyn — uden at være med som spiller. Under afstemningen kan den spille numrene for alle.</p>
+      </div>
+      <label class="field screen-attach__code">
+        <span class="field__label">Lobbykode</span>
+        <input class="input input--code" name="code" value="{{ code }}" required
+               maxlength="{{ code_len }}" minlength="{{ code_len }}"
+               autocomplete="off" autocapitalize="characters" spellcheck="false" data-upper>
+      </label>
+      <button class="btn screen-attach__go" type="submit">Vis på storskærm</button>
+    </form>
+  </section>
+
+  {# ---------- Tilpas ---------- #}
+  <section class="panel card custom" id="tilpas" aria-labelledby="custom-title" hidden>
+    <a class="panel__back" href="#">‹ Tilbage</a>
+    <h2 class="card__title" id="custom-title">Tilpas</h2>
+
+    <div class="custom__preview" aria-hidden="true">
+      <span class="avatar avatar--big" id="custom-face">?</span>
+      <span class="custom__name" id="custom-name-preview">Dit kaldenavn</span>
+    </div>
+
+    <label class="field">
+      <span class="field__label">Kaldenavn</span>
+      <input class="input" id="custom-name" maxlength="{{ name_max }}" autocomplete="nickname">
+    </label>
+
+    <fieldset class="field picker">
+      <legend class="field__label">Avatar</legend>
+      <div class="picker__grid picker__grid--emoji">
+        {% for a in avatars %}
+          <label class="pick pick--emoji">
+            <input type="radio" name="avatar-pick" value="{{ a }}">
+            <span class="pick__face">{{ a }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <fieldset class="field picker">
+      <legend class="field__label">Farve</legend>
+      <div class="picker__grid picker__grid--color">
+        {% for key, label in colors %}
+          <label class="pick pick--color" title="{{ label }}">
+            <input type="radio" name="color-pick" value="{{ key }}">
+            <span class="pick__swatch tint--{{ key }}"><span class="sr">{{ label }}</span></span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <p class="note">Gemmes i den her browser og bruges, når du kommer med i en lobby. Avataren følger med i nye runder.</p>
+  </section>
+
+  {# ---------- Indstillinger ---------- #}
+  <section class="panel card" id="indstillinger" aria-labelledby="prefs-title" hidden>
+    <a class="panel__back" href="#">‹ Tilbage</a>
+    <h2 class="card__title" id="prefs-title">Indstillinger</h2>
+    <div class="prefs" data-prefs></div>
+    <p class="note">Gælder kun den her browser.</p>
+  </section>
 </div>
 
 <p class="foot"><a href="{{ url_for('admin.admin') }}">Admin</a></p>
