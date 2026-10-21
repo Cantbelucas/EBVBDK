@@ -99,6 +99,10 @@
             </svg>
             <svg class="wheel__disc" id="wheel-disc" viewBox="-112 -112 224 224" aria-hidden="true"></svg>
             <span class="wheel__hub" aria-hidden="true"><span class="flame"></span></span>
+            {# Scanlines over hjulet, som paa et gammelt fjernsyn, og den
+               hvide blitz der kommer, naar det lander. #}
+            <span class="wheel__crt" aria-hidden="true"></span>
+            <span class="wheel__flare" aria-hidden="true"></span>
           </div>
         </div>
         <div class="spin__controls">
@@ -109,6 +113,7 @@
           <p class="spin__now" id="spin-now" role="status" aria-live="polite"></p>
           <button class="btn btn--go spin__btn" id="spin-btn" type="button" hidden>Spin hjulet</button>
           <p class="spin__auto" id="spin-auto"></p>
+          <button class="btn btn--quiet spin__sound" id="sound-btn" type="button" aria-pressed="true">Lyd: til</button>
         </div>
         <div class="spin__orderside">
           <p class="field__label">Rækkefølge</p>

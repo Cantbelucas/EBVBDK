@@ -100,7 +100,6 @@
   function typeInto(node, text, done, speed) {
     clearInterval(node._typer);
     clearTimeout(node._caretOff);
-    if (calm) { node.textContent = text; if (done) done(); return; }
     // Hvert bogstav i sit eget span, usynligt fra start. Saa er teksten
     // lige bred hele vejen, og centreret tekst staar stille mens den skrives.
     node.textContent = "";
@@ -131,12 +130,13 @@
   }
 
   /* Til tekst der kommer fra serveren (genren). Skrives kun ud naar den
-     er ny - en poll med samme tekst roerer den ikke. */
-  function type(node, text, speed) {
+     er ny - en poll med samme tekst roerer den ikke. `done` kaldes naar
+     den er skrevet, saa to tekster kan skrives efter hinanden. */
+  function type(node, text, speed, done) {
     if (!node || node.dataset.typed === text) return;
     node.dataset.typed = text;
     node.setAttribute("aria-label", text);
-    typeInto(node, text, null, speed);
+    typeInto(node, text, done, speed);
   }
 
   var caption = document.getElementById("caption");
@@ -292,8 +292,10 @@
 
   var LEAF_TONES = ["#b8622a", "#d4893c", "#9a4f27", "#c97a35", "#7d4a2c", "#e0a24e"];
 
+  /* Bladene og kragerne er en del af stemningen, saa de er med ogsaa ved
+     reduceret bevaegelse - de driver roligt i baggrunden og flytter ikke
+     noget man skal laese eller trykke paa. */
   function scatterLeaves(box) {
-    if (calm) return;                           // ingen bevaegelse - ingen blade
     var rand = Math.random;
     var count = window.innerWidth < 600 ? 9 : 16;
     for (var i = 0; i < count; i++) {
@@ -527,5 +529,5 @@
   }
 
   var town = document.querySelector(".scene__town");
-  if (town && !calm) startCrows(town);
+  if (town) startCrows(town);
 })();

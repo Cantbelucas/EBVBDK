@@ -171,11 +171,25 @@ Variablerne står øverst i `static/styles.css`.
   blinker hurtigere til sidst, flammerne tænder og gløder, og vinderen får
   en gul kant med en svag glorie.
 - **Genrehjulet** er skærmens fokus i den fase: spillerlisten træder til
-  side, byen bliver mørkere, og hjulet står stort under et spotlys. Det er
-  sort og gult med en guldkant med lamper, pinde mellem skiverne og en gul
-  flap i toppen, der slår mod pindene. Lamperne løber rundt, mens det
-  drejer, og blinker, når det lander; skiven der vinder, blinker, og
-  genren kommer frem under hjulet. Taget genrer bliver matte.
+  side, byen bliver mørkere, og hjulet står stort under et spotlys.
+  Skiverne er næsten sorte med en tynd gul kontur og en svag glød mod
+  kanten, og kun skiven under viseren lyser gult — gult er en accent, ikke
+  et mønster. Navnene står ens: samme størrelse, kursiv, med luft imellem,
+  og lange navne forkortes ("JERSEY C."). Uden om sidder en tynd mørk ring
+  med streger som på et speedometer; de fyldes op fra toppen med farten,
+  mens hjulet drejer, og blinker, når det lander. I midten et sekskantet
+  glasnav med en tynd ring, der pulserer, og en glasrefleks over den ene
+  halvdel af hjulet. En gul flap i toppen slår mod hver skillelinje. Det trækkes lidt tilbage, slippes,
+  ruller en smule forbi og rykker tilbage på plads. Navnene bliver uskarpe
+  (motion blur), når det drejer hurtigt. Ved landingen: en hvid blitz fra
+  viseren, et lille ryk (ikke ved reduceret bevægelse), skiven der vinder,
+  lyser op, og resten dæmpes et par sekunder. Svage scanlines over hjulet
+  og en tung vignette i hjørnerne. Taget genrer bliver matte.
+- **Lyd** laves med WebAudio, uden lydfiler: et kort klik for hver pind,
+  to blip når hjulet slippes, en dyb tone med en lys glimmer når det
+  lander, og to blip når det bliver ens tur. Browsere tillader først lyd
+  efter et klik på siden. "Lyd: til/fra" ved knappen, og valget huskes i
+  browseren.
 - **Hjulets vinkel er en funktion af serverens ur** (`frame()` i
   `lobby.js`): hvert spin starter, hvor det forrige landede, og slutvinklen
   regnes ud fra genren og tidspunktet. Så står hjulet samme sted hos alle —
@@ -185,8 +199,15 @@ Variablerne står øverst i `static/styles.css`.
 - **Baggrunden** er den tågede by: tågen driver, lagene flytter sig lidt
   med musen (parallax, kun med mus), støv svæver op, og blade og krager
   kommer og går. Et mørkt slør med svage scanlines ligger over det hele.
-- **Reduceret bevægelse**: intet bevæger sig, men stilen er den samme.
-  Blade, støv, krager og parallax laves slet ikke.
+- **Den gule tekst skrives ud** tegn for tegn som på en skrivemaskine:
+  underteksterne nederst ("din genre er … trap.", "ét minut tilbage."),
+  "Din genre er" og genren i reveal, "Du fik …" under hjulet og vinderens
+  navn i resultatet. Det kører også ved reduceret bevægelse — intet
+  flytter sig, bogstaverne kommer bare frem.
+- **Reduceret bevægelse**: siden står stille, men stilen er den samme.
+  Støv og parallax laves slet ikke. Undtagelserne er genrehjulet (selve
+  spillet) og bladene og kragerne i baggrunden, der hører til stemningen —
+  de driver roligt og flytter ikke noget, man skal læse eller trykke på.
 - **Fonte** er selvhostede i `static/fonts/` (Poppins og Inter, begge
   SIL OFL 1.1 — licenserne ligger ved siden af).
 

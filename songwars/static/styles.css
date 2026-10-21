@@ -617,6 +617,16 @@ body[data-phase="lobby"] .codebox { visibility: hidden; }
 body[data-phase="spin"] .crew { display: none; }
 body[data-phase="spin"] .game { grid-template-columns: minmax(0, 1fr); }
 body[data-phase="spin"] .scene { filter: brightness(0.55) saturate(0.8); }
+/* Tung vignette i hjoernerne, som PS2-menuernes moerke baggrund. Den
+   ligger over byen og under indholdet. */
+body[data-phase="spin"]::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(ellipse 75% 70% at 50% 46%, transparent 35%, rgba(0, 0, 0, 0.55) 78%, rgba(0, 0, 0, 0.8) 100%);
+}
 .scene { transition: filter 800ms var(--ease); }
 
 .spin__title {
@@ -669,61 +679,145 @@ body[data-phase="spin"] .scene { filter: brightness(0.55) saturate(0.8); }
 }
 .wheel.is-spinning::before, .wheel.is-won::before { opacity: 1; }
 
-.wheel__disc { display: block; width: 100%; height: 100%; overflow: visible; }
-.wheel__shadow { fill: rgba(0, 0, 0, 0.55); filter: blur(5px); }
+.wheel__disc {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  /* En let gul gloed omkring hjulet - det lysende element paa den moerke bund. */
+  filter: drop-shadow(0 0 16px rgba(244, 212, 58, 0.12));
+}
+.wheel__shadow { fill: rgba(0, 0, 0, 0.6); filter: blur(6px); }
+.wheel__base { fill: #050505; }
 
-.slice__face { stroke: #050505; stroke-width: 0.6; }
-.slice--y .slice__face { fill: url(#sw-y); }
-.slice--b .slice__face { fill: url(#sw-b); }
-.slice--g .slice__face { fill: url(#sw-g); }
-.slice__edge { fill: none; stroke-width: 1.4; stroke-linecap: round; }
-.slice--y .slice__edge { stroke: rgba(255, 250, 220, 0.75); }
-.slice--b .slice__edge, .slice--g .slice__edge { stroke: rgba(244, 212, 58, 0.28); }
+/* Skiverne: naesten sorte, med en tynd gul kontur og en svag gloed ind
+   mod kanten. Kun skiven under viseren (is-lit) lyser gult - saa er gult
+   en accent, ikke et moenster. */
+.slice__face {
+  fill: url(#sw-dark);
+  stroke: rgba(244, 212, 58, 0.55);
+  stroke-width: 0.7;
+  stroke-linejoin: round;
+}
+.slice__edge { fill: none; stroke: rgba(244, 212, 58, 0.16); stroke-width: 5; stroke-linecap: butt; }
 .slice__label {
   font-family: var(--font);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.16em;
+  fill: rgba(244, 212, 58, 0.92);
   pointer-events: none;
 }
-.slice--y .slice__label { fill: #111; }
-.slice--b .slice__label, .slice--g .slice__label { fill: var(--accent); }
+/* Motion blur: lobby.js saetter --blur efter farten. */
+#wheel-rot.is-fast .slice__label { filter: blur(var(--blur, 0px)); }
 
-/* Taget: skiven bliver mat, og navnet blegt. Hjulet kan ikke lande der igen. */
-.slice--y.is-taken .slice__face { fill: #6a5c1f; }
-.slice--b.is-taken .slice__face, .slice--g.is-taken .slice__face { fill: #101010; }
-.slice.is-taken .slice__label { opacity: 0.42; }
-.slice.is-taken .slice__edge { opacity: 0.3; }
-/* Der hvor den lander, blinker skiven et par gange. */
-.slice.is-hit .slice__face { animation: hit 1.2s steps(2, end) 1; }
-@keyframes hit {
-  0%, 100% { fill: #fff8d2; }
-  50%      { fill: var(--accent); }
+.slice.is-lit .slice__face { fill: url(#sw-lit); stroke: #fff2a0; }
+.slice.is-lit .slice__edge { stroke: rgba(255, 255, 255, 0.35); }
+.slice.is-lit .slice__label { fill: #0b0b0b; }
+
+/* Taget: navnet og gloeden blegner. Hjulet kan ikke lande der igen. */
+.slice.is-taken:not(.is-lit) .slice__label { opacity: 0.3; }
+.slice.is-taken:not(.is-lit) .slice__edge { opacity: 0.25; }
+
+/* Vinderen: lige efter landingen pulserer skiven med en gul kant, og alle
+   de andre daempes. */
+.slice { transition: opacity 350ms var(--ease); }
+.wheel.is-won .slice:not(.is-hit) { opacity: 0.35; }
+.slice__glow {
+  fill: #fff8d2;
+  fill-opacity: 0;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-opacity: 0;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.wheel.is-won .slice.is-hit .slice__glow { animation: glow-pulse 0.5s ease-in-out 5 alternate both; }
+@keyframes glow-pulse {
+  from { fill-opacity: 0.3; stroke-opacity: 1; }
+  to   { fill-opacity: 0.06; stroke-opacity: 0.5; }
 }
 
-.wheel__divider { stroke: #050505; stroke-width: 1.4; }
-.wheel__peg { fill: #d9b12c; stroke: #3a2c06; stroke-width: 0.6; }
-.wheel__peg-shine { fill: #fff6c2; }
-.wheel__ring { fill: none; stroke: #d9b12c; stroke-width: 1.1; }
-.wheel__ring--dark { stroke: #050505; stroke-width: 3; }
+.wheel__ring { fill: none; stroke: rgba(244, 212, 58, 0.45); stroke-width: 0.7; }
 
-.wheel__lip { fill: none; stroke: #050505; stroke-width: 1.6; }
-.wheel__rim { fill: none; stroke: url(#sw-rim); stroke-width: 12; }
-.wheel__socket { fill: #2a2105; }
-.wheel__bulb { fill: #7a6520; transition: fill 90ms linear; }
-.wheel__bulb.is-lit {
-  fill: #fff8d6;
-  filter: drop-shadow(0 0 2.5px #ffe680) drop-shadow(0 0 5px rgba(255, 210, 80, 0.7));
+/* Glasrefleksen over den ene halvdel. */
+.wheel__glass { fill: url(#sw-glass); pointer-events: none; }
+
+/* Kanten: en tynd moerk ring med streger som paa et speedometer. Mens
+   hjulet drejer, fyldes stregerne op fra toppen med farten (is-lit). */
+.wheel__band { fill: none; stroke: #0a0a0a; stroke-width: 11; }
+.wheel__line { fill: none; stroke: rgba(244, 212, 58, 0.4); stroke-width: 0.6; }
+.wheel__line--outer { stroke: rgba(244, 212, 58, 0.18); }
+.wheel__tick { stroke: #4a4330; stroke-width: 0.8; stroke-linecap: round; }
+.wheel__tick--major { stroke: #8a7a45; stroke-width: 1.3; }
+.wheel__tick.is-lit {
+  stroke: var(--accent);
+  filter: drop-shadow(0 0 1.6px rgba(255, 220, 90, 0.9));
 }
-/* I hvile blinker hver anden lampe roligt. */
-.wheel:not(.is-spinning):not(.is-won) .wheel__bulb { animation: idle 1.6s steps(1, end) infinite; }
-.wheel:not(.is-spinning):not(.is-won) .wheel__bulb.is-odd { animation-delay: -0.8s; }
-@keyframes idle { 50% { fill: #e9cf6a; } }
-/* Efter landingen blinker alle lamperne sammen. */
-.wheel.is-won .wheel__bulb { animation: won 0.3s steps(1, end) 6; }
-@keyframes won { 50% { fill: #fff8d6; filter: drop-shadow(0 0 4px #ffe680); } }
+/* Efter landingen blinker alle stregerne sammen - langsomt nok til at det
+   ikke er stroboskop (under tre blink i sekundet). */
+.wheel.is-won .wheel__tick { animation: won 0.42s steps(1, end) 5; }
+@keyframes won { 50% { stroke: var(--accent); filter: drop-shadow(0 0 2px #ffe680); } }
 
-.wheel__gloss { fill: url(#sw-gloss); pointer-events: none; }
-.wheel__hubring { fill: url(#sw-hubg); stroke: #050505; stroke-width: 1.6; }
+/* Navet: sekskant af moerkt glas med en tynd ring der pulserer. */
+.wheel__hex { fill: url(#sw-hub); stroke: var(--accent); stroke-width: 1; stroke-linejoin: round; }
+.wheel__hex--inner { fill: none; stroke: rgba(244, 212, 58, 0.35); stroke-width: 0.6; }
+.wheel__hexshine { fill: url(#sw-hubshine); pointer-events: none; }
+.wheel__pulse {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 0.8;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hub-pulse 2.4s ease-out infinite;
+}
+@keyframes hub-pulse {
+  0%   { opacity: 0.7; transform: scale(0.82); }
+  100% { opacity: 0; transform: scale(1.18); }
+}
+.wheel.is-spinning .wheel__pulse { animation-duration: 0.8s; }
+
+/* Scanlines over hjulet: tynde moerke striber, som paa et gammelt fjernsyn. */
+.wheel__crt {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.13) 0 1px, transparent 1px 3px),
+    radial-gradient(closest-side, transparent 80%, rgba(0, 0, 0, 0.25));
+  mix-blend-mode: multiply;
+}
+
+/* Den hvide blitz ved landingen: fra viseren og ud over hjulet. */
+.wheel__flare {
+  position: absolute;
+  inset: -6%;
+  z-index: 3;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 4%, rgba(255, 255, 255, 0.95), rgba(255, 246, 200, 0.5) 12%, transparent 34%),
+    radial-gradient(closest-side, rgba(255, 250, 225, 0.35), transparent);
+  mix-blend-mode: screen;
+  opacity: 0;
+}
+.wheel.is-flare .wheel__flare { animation: flare 520ms ease-out both; }
+@keyframes flare {
+  0%   { opacity: 0; transform: scale(0.85); }
+  18%  { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+/* Et lille ryk i hjulet. Ikke ved reduceret bevaegelse. */
+@media (prefers-reduced-motion: no-preference) {
+  .wheel.is-shake { animation: shake 340ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+}
+@keyframes shake {
+  15% { transform: translate(-3px, 2px); }
+  35% { transform: translate(3px, -2px); }
+  55% { transform: translate(-2px, 1px); }
+  75% { transform: translate(1px, -1px); }
+}
 
 /* Viseren: en flap der haenger fra et soem over kanten. */
 .wheel__pointer {
@@ -745,14 +839,12 @@ body[data-phase="spin"] .scene { filter: brightness(0.55) saturate(0.8); }
   left: 50%;
   display: grid;
   place-items: center;
-  width: 16%;
+  width: 9%;
   aspect-ratio: 1;
   transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #3d3d3d, #0b0b0b 68%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 0 2px #050505;
+  pointer-events: none;
 }
-.wheel__hub .flame { width: 50%; height: 50%; background: var(--accent); filter: drop-shadow(0 0 4px rgba(244, 212, 58, 0.5)); }
+.wheel__hub .flame { width: 70%; height: 70%; background: var(--accent); filter: drop-shadow(0 0 4px rgba(244, 212, 58, 0.55)); }
 
 /* Resultatet under hjulet, som en undertekst. */
 .spin__result {
@@ -775,6 +867,7 @@ body[data-phase="spin"] .scene { filter: brightness(0.55) saturate(0.8); }
 .spin__now { font-weight: 600; min-height: 1.5em; }
 .spin__btn { min-width: 240px; height: 48px; font-size: 17px; }
 .spin__auto { min-height: 1.4em; font-size: var(--fs-small); color: var(--muted); font-variant-numeric: tabular-nums; }
+.spin__sound { margin-top: var(--s2); }
 
 /* Raekkefoelgen: som en menu, hvor den der har tur, er markeret. */
 .spin__orderside .field__label { margin-bottom: var(--s2); }
@@ -836,14 +929,6 @@ body[data-phase="spin"] .scene { filter: brightness(0.55) saturate(0.8); }
   color: var(--flame);
   overflow-wrap: anywhere;
   transform-origin: center;
-}
-.reveal__genre.is-wave .ch {
-  animation: emerge-slow 1100ms var(--ease) both;
-  animation-delay: calc(var(--i) * 70ms);
-}
-@keyframes emerge-slow {
-  from { opacity: 0; filter: blur(14px); transform: scale(1.08); }
-  to   { opacity: 1; filter: none; transform: none; }
 }
 .reveal__beat { font-size: var(--fs-body); }
 
@@ -1305,20 +1390,23 @@ body[data-phase="spin"] .scene { filter: brightness(0.55) saturate(0.8); }
 
 /* ---------- Reduceret bevaegelse ----------
    Intet bevaeger sig. Stilen er den samme - panelerne, kanterne og
-   farverne bliver - siden staar bare stille. Bladene, stoevet og
-   kragerne laves slet ikke (common.js), og undertekster vises med det
-   samme.
+   farverne bliver - siden staar bare stille. Stoevet og parallaxen laves
+   slet ikke (common.js). Underteksterne skrives stadig ud tegn for tegn -
+   intet flytter sig, bogstaverne kommer bare frem.
 
-   Undtagelsen er genrehjulet: at det drejer og lander, er selve spillet,
-   saa det drejer stadig (lobby.js), og skiven der vinder, blinker kort.
-   Lamperne blinker ikke i hvile. */
+   Undtagelserne er genrehjulet - at det drejer og lander, er selve
+   spillet, saa det drejer stadig (lobby.js), og skiven der vinder, blinker
+   kort; ringen om navet pulserer ikke - og bladene og kragerne i
+   baggrunden, der hoerer til stemningen. */
 
 @media (prefers-reduced-motion: reduce) {
-  *:not(.wheel *), *:not(.wheel *)::before, *:not(.wheel *)::after {
+  *:not(.wheel *, .leaf, .leaf__shape, .crow *),
+  *:not(.wheel *, .crow *)::before,
+  *:not(.wheel *, .crow *)::after {
     animation: none !important;
     transition: none !important;
   }
-  .wheel:not(.is-spinning):not(.is-won) .wheel__bulb { animation: none; }
+  .wheel__pulse { animation: none; opacity: 0.4; }
   .dots::after { content: "…"; }
   .scene__town, .scene__tree { transform: none; }
 }
