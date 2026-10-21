@@ -9,9 +9,16 @@ Ingen konti. Man er et kaldenavn i en signeret cookie. Kun admin logger
 ind, og kun for at styre genrer og beats.
 
 ```
-app.py                      hele backenden (Flask + SQLite)
+app.py                      Flask-appen: sikkerhed, oprydning og spillernes ruter
+core.py                     konfiguration og fælles småting (ur, tekst, fejlsvar, upload)
+database.py                 skema, migrering, forbindelse, rate limiting
+game.py                     spillets regler: faser, hjulet, hold, point, stillingen, /state
+admin.py                    admin-siden og beats fra YouTube (blueprint "admin")
 audio.py                    er filen faktisk mp3 eller wav? + længden
 youtube.py                  hent et beat fra et YouTube-link (yt-dlp + ffmpeg + deno)
+tests/
+  test_songwars.py          hele appen igennem: python tests/test_songwars.py
+  fixtures/                 korte toner (mp3, m4a og ogg forklædt som mp3, en halv mp3)
 templates/
   base.html                 ramme, CSRF-token som <meta>
   home.html                 opret / join
@@ -65,6 +72,19 @@ beat op — ellers kan ingen runde starte.
 For at prøve med flere spillere på én maskine: brug et privat vindue eller
 en anden browser pr. spiller. Hver browser er én spiller.
 
+## Tests
+
+```bash
+python tests/test_songwars.py
+```
+
+Kører hele appen igennem med Flasks testklient — opret og join, hjulet,
+aflevering med frister og ekstra tid, afstemning med frist, resultat, ny
+runde og stillingen, admin, YouTube, oprydning og sikkerhedsheaders. Uret
+er falsk (`core._clock`), så frister testes uden at vente, og YouTube er
+skiftet ud med en falsk hentning, så intet rammer nettet. Afslutter med
+exit-kode 1, hvis noget fejler. Kør den før hvert deploy.
+
 ## Sådan går en runde
 
 | Fase | Hvad sker der | Hvem bestemmer |
@@ -72,20 +92,36 @@ en anden browser pr. spiller. Hver browser er én spiller.
 | **Lobby** | Spillere joiner med koden. Alle ser listen live. Ejeren kan ændre tid og holdstørrelse, og fjerne spillere. | Ejeren starter |
 | **Genrehjulet** | Holdene fordeles tilfældigt, og der trækkes en tilfældig rækkefølge. Holdene drejer hjulet på skift (solo: hver spiller). Serveren trækker en genre ingen andre har fået, og et tilfældigt beat i den — hjulet viser bare, hvor den lander, ens hos alle. Drejer et hold ikke inden for `SONGWARS_SPIN_SECONDS` (20 s), gør serveren det. | Holdene — eller tiden |
 | **Reveal** | Hvert hold ser sin genre og sit beat. Varer `SONGWARS_REVEAL_SECONDS` (10 s). | Tiden |
-| **Lav** | Nedtælling. Holdets eget beat kan afspilles og hentes. Ét nummer pr. hold; et nyt upload fra en på holdet erstatter det forrige. | Tiden — eller ejeren lukker før |
-| **Afstemning** | Numrene i tilfældig rækkefølge som "Nummer 1, 2, 3 …". Alle giver 1–5 flammer til alle numre undtagen holdets eget. Stemmer kan ændres. | Slutter når alle har stemt — eller ejeren lukker |
-| **Resultat** | Rangliste efter gennemsnit af flammer. Navnene og genrerne afsløres. Lige gennemsnit giver samme plads. | — |
+| **Lav** | Nedtælling. Holdets eget beat kan afspilles og hentes. Ét nummer pr. hold; et nyt upload fra en på holdet erstatter det forrige. | Tiden — eller ejeren stopper den før |
+| **Ekstra tid** | Når tiden er gået, er der `SONGWARS_EXTRA_SECONDS` (2 min) mere til at aflevere, med sit eget orange ur. Har alle hold afleveret, springes den over. | Tiden — eller ejeren lukker før |
+| **Afstemning** | Numrene i tilfældig rækkefølge som "Nummer 1, 2, 3 …". Alle giver 1–5 flammer til alle numre undtagen holdets eget. Stemmer kan ændres. Lukker af sig selv efter `SONGWARS_VOTE_MINUTES_PER_TRACK` (2 min) pr. nummer, mindst 5 min. | Slutter når alle har stemt, når tiden er gået — eller ejeren lukker |
+| **Resultat** | Rangliste efter gennemsnit af flammer. Navnene og genrerne afsløres. Lige gennemsnit giver samme plads. Ejeren kan starte en ny runde med de samme spillere. | — |
+
+**Ejeren kan lukke hver fase tidligt**: "Stop tiden nu" i lav-fasen starter
+den ekstra tid (så de andre stadig får den), "Luk afleveringen nu" i den
+ekstra tid går til afstemningen, og "Afslut afstemningen" går til
+resultatet.
+
+**Ny runde med samme spillere**: efter resultatet laver ejeren en ny lobby
+med samme tid og holdstørrelse. Alle fra runden er med i den uden at skrive
+koden igen (`players.from_id` peger på samme spiller i forrige runde), og
+nye venner kan stadig joine med koden. Pointene lægges sammen: 1. plads
+giver 3 point, 2. plads 2 og 3. plads 1 — til alle på holdet, og lige
+placering giver samme point. Holdene trækkes på ny hver runde, så pointene
+følger personen, ikke holdet. Stillingen står i lobbyen og under
+resultatet fra runde 2.
 
 **Tiden håndhæves på serveren.** Fasen gemmes som status plus
 tidsstempler, og hver forespørgsel regner ud hvor vi er (`advance()` i
-`app.py`). Nedtællingen i browseren er kun en visning — en upload efter
+`game.py`). Nedtællingen i browseren er kun en visning — en upload efter
 fristen afvises af serveren, uanset hvad uret i browseren viser.
 Fristen tjekkes både når uploaden ankommer, og igen inde i den
 transaktion der gemmer den.
 
-Der er en lille **graceperiode** (`SONGWARS_GRACE_SECONDS`, 10 s): en fil på
-50 MB tager tid at sende, og en upload der lander lige efter nul skal ikke
-gå tabt. Sæt den til `0` for at være helt stram.
+Oven i den ekstra tid er der en lille, usynlig **graceperiode**
+(`SONGWARS_GRACE_SECONDS`, 10 s): en fil på 50 MB tager tid at sende, og en
+upload der lander lige efter nul skal ikke gå tabt. Sæt den til `0` for at
+være helt stram.
 
 **Hold:** antallet af hold er `spillere ÷ holdstørrelse` rundet ned, og de
 der er tilovers fordeles ud. Intet hold bliver mindre end den valgte
@@ -115,7 +151,9 @@ Alt kommer fra miljøet (`.env`). Ingen hemmeligheder i koden.
 | `SONGWARS_YT_MAX_MINUTES` | `15` | Beats fra YouTube må højst være så lange. |
 | `SONGWARS_SPIN_SECONDS` | `20` | Hvor længe et hold har til at dreje hjulet, før serveren gør det. |
 | `SONGWARS_REVEAL_SECONDS` | `10` | Hvor længe genren vises før tiden starter. |
+| `SONGWARS_EXTRA_SECONDS` | `120` | Ekstra tid til at aflevere, når tiden er gået. `0` slår den fra. |
 | `SONGWARS_GRACE_SECONDS` | `10` | Se ovenfor. |
+| `SONGWARS_VOTE_MINUTES_PER_TRACK` | `2` | Afstemningen lukker efter så mange minutter pr. nummer, mindst 5. |
 
 Mangler en af de to påkrævede, eller er de for korte, nægter appen at
 starte og siger hvorfor.

@@ -12,167 +12,52 @@ kaldenavn i en signeret cookie.
 
 I drift koeres den med gunicorn bag nginx. Se README.md og DEPLOY.md.
 
-Faserne i en runde gemmes som status + tidsstempler, og den aktuelle fase
-regnes ud ved hver forespoergsel (advance). Der er ingen baggrundsjob og
-ingen timer i klienten der bestemmer noget - fristen haandhaeves her.
+Koden er delt saadan:
 
-    status    fase
-    lobby     lobby       venter paa spillere
-    spinning  spin        holdene drejer hjulet paa skift
-    running   spin        det sidste hjul staar ikke stille endnu (turn_at)
-              reveal      hver sin genre og sit beat        (indtil make_at)
-              make        nedtaelling til deadline         (indtil deadline + grace)
-    voting    vote        alle stemmer
-    done      result      ranglisten
-    closed    closed      udloebet foer runden blev faerdig
+    core.py       konfiguration og faelles smaating
+    database.py   skema, forbindelse, rate limiting
+    game.py       spillets regler: faser, hjulet, point, /state
+    admin.py      admin-siden og beats fra YouTube
+    app.py        Flask-appen, sikkerhed, oprydning og spillernes ruter
 """
 
 import hmac
+import logging
 import os
 import re
 import secrets
-import shutil
 import sqlite3
 import sys
-import threading
-import time
 import unicodedata
-from functools import wraps
 from hashlib import sha1
-from pathlib import Path
 
 from flask import (
     Flask, abort, flash, g, jsonify, redirect, render_template, request,
     send_file, session, url_for,
 )
+from flask.logging import default_handler
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import audio
-import youtube
-
-# --------------------------------------------------------------------
-# Konfiguration. Alt kommer fra miljoeet (.env via docker compose).
-# --------------------------------------------------------------------
-
-ROOT = Path(__file__).resolve().parent
-
-
-def load_env_file(path):
-    """Til `python app.py` lokalt. I containeren saetter docker compose
-    variablerne fra .env, og filen kommer aldrig med ind i imaget
-    (.dockerignore). Variabler der allerede er sat, vinder."""
-    if not path.is_file():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-
-
-load_env_file(ROOT / ".env")
-
-
-def env_int(name, default, low, high):
-    raw = os.environ.get(name, "").strip()
-    try:
-        value = int(raw) if raw else default
-    except ValueError:
-        sys.exit("{0} skal vaere et heltal, ikke {1!r}".format(name, raw))
-    if not low <= value <= high:
-        sys.exit("{0} skal ligge mellem {1} og {2}".format(name, low, high))
-    return value
-
-
-DATA = Path(os.environ.get("SONGWARS_DATA", ROOT / "data"))
-DB_PATH = DATA / "songwars.db"
-BEATS = DATA / "beats"
-SUBS = DATA / "submissions"
-TMP = DATA / "tmp"
-CACHE = DATA / "cache"          # deno og yt-dlp (DENO_DIR, XDG_CACHE_HOME i Dockerfile)
-
-SECRET_KEY = os.environ.get("SONGWARS_SECRET_KEY", "")
-ADMIN_PASSWORD = os.environ.get("SONGWARS_ADMIN_PASSWORD", "")
-COOKIE_SECURE = os.environ.get("SONGWARS_COOKIE_SECURE", "1") != "0"
-IP_HEADER = os.environ.get("SONGWARS_IP_HEADER", "CF-Connecting-IP").strip()
-
-MAX_UPLOAD = env_int("SONGWARS_MAX_UPLOAD_MB", 50, 1, 95) * 1024 * 1024
-MAX_BEAT = env_int("SONGWARS_MAX_BEAT_MB", 95, 1, 95) * 1024 * 1024
-LOBBY_SECONDS = env_int("SONGWARS_LOBBY_HOURS", 24, 1, 168) * 3600
-KEEP_SECONDS = env_int("SONGWARS_KEEP_DAYS", 7, 1, 90) * 86400
-REVEAL_SECONDS = env_int("SONGWARS_REVEAL_SECONDS", 10, 0, 120)
-# Et upload paa 50 MB tager tid. Det der naar frem lige efter nul, faar
-# lov - alt efter det her afvises. Saet til 0 for at vaere helt stram.
-GRACE_SECONDS = env_int("SONGWARS_GRACE_SECONDS", 10, 0, 120)
-# Saa laenge har et hold til at dreje hjulet. Bagefter drejer serveren det
-# for dem, saa en der er gaaet fra skaermen ikke holder runden op.
-SPIN_SECONDS = env_int("SONGWARS_SPIN_SECONDS", 20, 5, 120)
-# Beats fra YouTube: hoejst saa lange, og hoejst saa mange ad gangen.
-YT_MAX_SECONDS = env_int("SONGWARS_YT_MAX_MINUTES", 15, 1, 60) * 60
-YT_PARALLEL = 2
-YT_STALE_SECONDS = 15 * 60      # en hentning der "koerer" saa laenge, er doed
-SPIN_MS = 5800             # hjulet drejer saa laenge i klienten
-SPIN_REST = 2.2            # ... og staar stille saa laenge, foer naeste tur
-SPIN_INTRO = 3             # raekkefoelgen vises, foer den foerste tur
-
-MAX_PLAYERS = 40
-MINUTES_RANGE = (1, 180)
-TEAM_RANGE = (1, 10)
-NAME_MAX = 20
-TITLE_MAX = 80
-CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # ingen 0/O, 1/I/L
-CODE_LEN = 5
-CODE_RE = re.compile(r"[%s]{%d}" % (CODE_ALPHABET, CODE_LEN))
-HEX_RE = re.compile(r"[0-9a-f]{32}")
-
-# (antal, vindue i sekunder). Taeller ogsaa forsoeg der fejler - ellers
-# kan man gaette lobbykoder saa hurtigt man vil.
-LIMITS = {
-    "join": (12, 300),
-    "create": (6, 3600),
-    "upload_ip": (30, 600),
-    "upload_player": (12, 600),
-    "admin": (6, 900),
-    "vote": (300, 600),
-    "spin": (30, 600),
-}
-
-ONLINE_SECONDS = 15        # set inden for, saa staar man som "her"
-POLL_TOUCH_SECONDS = 8     # skriv ikke seen_at ved hver eneste poll
-CLEANUP_EVERY = 600
-
-# Samme politik som nginx. Saetter appen den ogsaa, gaelder den selv hvis
-# server-blokken mangler en linje - og den kan testes lokalt.
-CSP = ("default-src 'none'; script-src 'self'; connect-src 'self'; "
-       "img-src 'self' data:; media-src 'self'; style-src 'self'; font-src 'self'; "
-       "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
-
-
-def check_config():
-    problems = []
-    if len(SECRET_KEY) < 32:
-        problems.append("SONGWARS_SECRET_KEY mangler eller er under 32 tegn. Lav en med:\n"
-                        "    python -c \"import secrets; print(secrets.token_hex(32))\"")
-    if len(ADMIN_PASSWORD) < 12:
-        problems.append("SONGWARS_ADMIN_PASSWORD mangler eller er under 12 tegn.")
-    if problems:
-        sys.exit("Songwars kan ikke starte:\n  - " + "\n  - ".join(problems))
-
-    for folder in (DATA, BEATS, SUBS, TMP, CACHE):
-        try:
-            folder.mkdir(parents=True, exist_ok=True)
-            probe = folder / ".skrivbar"
-            probe.write_text("ok")
-            probe.unlink()
-        except OSError as exc:
-            sys.exit("Songwars kan ikke skrive i {0} ({1}).\n"
-                     "Containeren koerer som uid 10001. Paa vaerten:\n"
-                     "    sudo chown -R 10001:10001 data".format(folder, exc))
-
+from core import (
+    BEATS, CLEANUP_EVERY, CODE_LEN, CODE_RE, COOKIE_SECURE, CSP,
+    EXTRA_SECONDS, GRACE_SECONDS, HEX_RE, KEEP_SECONDS, MAX_BEAT,
+    MAX_PLAYERS, MAX_UPLOAD, MINUTES_RANGE, NAME_MAX, POLL_TOUCH_SECONDS,
+    ROOT, SECRET_KEY, SPIN_INTRO, SUBS, TEAM_RANGE, TMP, check_config,
+    clean_text, client_ip, clock, fail, json_error, now, remove_file,
+    save_upload, too_many, wants_json,
+)
+from database import connect, db, init_db, limited
+from game import (
+    advance, closes_at, genres_with_beats, make_teams, new_code, phase_of,
+    spin, start_problem, state_for, team_genre, team_on_turn,
+)
+from admin import bp as admin_bp, is_admin
 
 app = Flask(__name__)
+logging.getLogger("songwars").addHandler(default_handler)
+logging.getLogger("songwars").setLevel(logging.INFO)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config.update(
     SECRET_KEY=SECRET_KEY,
@@ -185,135 +70,7 @@ app.config.update(
 )
 
 
-# --------------------------------------------------------------------
-# Database
-# --------------------------------------------------------------------
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS genres (
-    id          INTEGER PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    created_at  REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS beats (
-    id          TEXT PRIMARY KEY,
-    genre_id    INTEGER NOT NULL REFERENCES genres(id),
-    title       TEXT NOT NULL,
-    file        TEXT NOT NULL,
-    kind        TEXT NOT NULL,
-    size        INTEGER NOT NULL,
-    seconds     REAL NOT NULL,
-    created_at  REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS lobbies (
-    id          INTEGER PRIMARY KEY,
-    code        TEXT NOT NULL UNIQUE,
-    owner_id    INTEGER,
-    minutes     INTEGER NOT NULL,
-    team_size   INTEGER NOT NULL,
-    genre_id    INTEGER,                 -- NULL = tilfaeldig
-    status      TEXT NOT NULL DEFAULT 'lobby',
-    beat_id     TEXT REFERENCES beats(id) ON DELETE SET NULL,
-    genre_name  TEXT NOT NULL DEFAULT '',
-    beat_title  TEXT NOT NULL DEFAULT '',
-    started_at  REAL,
-    make_at     REAL,
-    deadline    REAL,
-    voting_at   REAL,
-    done_at     REAL,
-    turn_at     REAL,                    -- hjulet: hvornaar naeste tur begynder
-    created_at  REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS teams (
-    id          INTEGER PRIMARY KEY,
-    lobby_id    INTEGER NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
-    number      INTEGER NOT NULL,
-    spin_order  INTEGER,
-    genre_id    INTEGER,
-    genre_name  TEXT NOT NULL DEFAULT '',
-    beat_id     TEXT REFERENCES beats(id) ON DELETE SET NULL,
-    beat_title  TEXT NOT NULL DEFAULT '',
-    spun_at     REAL,
-    spun_by     INTEGER                  -- NULL = serveren drejede for holdet
-);
-
-CREATE TABLE IF NOT EXISTS players (
-    id          INTEGER PRIMARY KEY,
-    lobby_id    INTEGER NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
-    name        TEXT NOT NULL COLLATE NOCASE,
-    team_id     INTEGER REFERENCES teams(id) ON DELETE SET NULL,
-    joined_at   REAL NOT NULL,
-    seen_at     REAL NOT NULL,
-    UNIQUE (lobby_id, name)
-);
-
-CREATE TABLE IF NOT EXISTS submissions (
-    id          TEXT PRIMARY KEY,
-    lobby_id    INTEGER NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
-    team_id     INTEGER NOT NULL UNIQUE REFERENCES teams(id) ON DELETE CASCADE,
-    file        TEXT NOT NULL,
-    kind        TEXT NOT NULL,
-    size        INTEGER NOT NULL,
-    seconds     REAL NOT NULL,
-    player_id   INTEGER,
-    uploaded_at REAL NOT NULL,
-    position    INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS votes (
-    submission_id TEXT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
-    player_id     INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-    flames        INTEGER NOT NULL CHECK (flames BETWEEN 1 AND 5),
-    at            REAL NOT NULL,
-    PRIMARY KEY (submission_id, player_id)
-);
-
--- Beats der hentes fra YouTube. Hentningen koerer i baggrunden; admin-
--- siden viser status herfra.
-CREATE TABLE IF NOT EXISTS imports (
-    id          INTEGER PRIMARY KEY,
-    video       TEXT NOT NULL,
-    title       TEXT NOT NULL DEFAULT '',
-    genre_id    INTEGER NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'running',   -- running, done, failed
-    message     TEXT NOT NULL DEFAULT '',
-    beat_id     TEXT,
-    created_at  REAL NOT NULL,
-    updated_at  REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS hits (
-    key   TEXT NOT NULL,
-    at    REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS hits_key ON hits(key, at);
-CREATE INDEX IF NOT EXISTS players_lobby ON players(lobby_id);
-CREATE INDEX IF NOT EXISTS subs_lobby ON submissions(lobby_id);
-CREATE INDEX IF NOT EXISTS lobbies_created ON lobbies(created_at);
-"""
-
-
-def connect():
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 10000")
-    return conn
-
-
-def db():
-    if "db" not in g:
-        g.db = connect()
-    return g.db
+app.register_blueprint(admin_bp)
 
 
 @app.teardown_appcontext
@@ -321,79 +78,6 @@ def close_db(_exc):
     conn = g.pop("db", None)
     if conn is not None:
         conn.close()
-
-
-# Kolonner der er kommet til siden foerste version. CREATE TABLE IF NOT
-# EXISTS roerer ikke en tabel der findes, saa de tilfoejes her.
-COLUMNS = {
-    "lobbies": [("turn_at", "REAL")],
-    "beats": [("source", "TEXT")],              # youtube:<id>, saa samme video ikke kommer to gange
-    "teams": [
-        ("spin_order", "INTEGER"),
-        ("genre_id", "INTEGER"),
-        ("genre_name", "TEXT NOT NULL DEFAULT ''"),
-        ("beat_id", "TEXT REFERENCES beats(id) ON DELETE SET NULL"),
-        ("beat_title", "TEXT NOT NULL DEFAULT ''"),
-        ("spun_at", "REAL"),
-        ("spun_by", "INTEGER"),
-    ],
-}
-
-
-def init_db():
-    conn = connect()
-    # WAL: polling-laesninger venter ikke paa en der skriver.
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.executescript(SCHEMA)
-    for table, columns in COLUMNS.items():
-        have = {r["name"] for r in conn.execute("PRAGMA table_info({0})".format(table))}
-        for name, kind in columns:
-            if name in have:
-                continue
-            try:
-                conn.execute("ALTER TABLE {0} ADD COLUMN {1} {2}".format(table, name, kind))
-            except sqlite3.OperationalError as exc:
-                # Den anden gunicorn-worker naaede det foerst.
-                if "duplicate column" not in str(exc):
-                    raise
-    conn.commit()
-    conn.close()
-
-
-# --------------------------------------------------------------------
-# Smaating
-# --------------------------------------------------------------------
-
-def now():
-    return time.time()
-
-
-def ms(t):
-    return None if t is None else int(t * 1000)
-
-
-def clean_text(text, limit):
-    text = unicodedata.normalize("NFC", text or "")
-    text = re.sub(r"[\x00-\x1f\x7f​-‏‪-‮⁦-⁩]", "", text)
-    return re.sub(r"\s+", " ", text).strip()[:limit]
-
-
-def clock(seconds):
-    if not seconds or seconds <= 0:
-        return "—"
-    total = int(round(seconds))
-    minutes, secs = divmod(total, 60)
-    if minutes >= 60:
-        return "{0}:{1:02d}:{2:02d}".format(minutes // 60, minutes % 60, secs)
-    return "{0}:{1:02d}".format(minutes, secs)
-
-
-def client_ip():
-    if IP_HEADER:
-        value = request.headers.get(IP_HEADER, "").strip()
-        if value:
-            return value[:64]
-    return request.remote_addr or "?"
 
 
 _ASSET_V = {}
@@ -422,35 +106,10 @@ def inject():
             "is_admin": is_admin()}
 
 
-def json_error(status, message, **extra):
-    body = {"error": message}
-    body.update(extra)
-    resp = jsonify(body)
-    resp.status_code = status
-    return resp
-
-
-def wants_json():
-    return (request.headers.get("X-Requested-With") == "fetch"
-            or request.accept_mimetypes.best == "application/json")
-
-
-def fail(status, message, back=None):
-    """Fejl til et fetch-kald som JSON, til en formular som flash + redirect."""
-    if wants_json():
-        return json_error(status, message)
-    flash(message)
-    return redirect(back or request.referrer or url_for("home"))
-
-
-# --------------------------------------------------------------------
-# Sikkerhed: CSRF, headers, rate limiting
-# --------------------------------------------------------------------
-
 @app.before_request
 def guard():
     # Foer formularen laeses: ellers er graensen allerede brugt.
-    if request.endpoint == "admin_beat_create" and is_admin():
+    if request.endpoint == "admin.admin_beat_create" and is_admin():
         # Beats maa vaere stoerre end afleveringer. Kun for admin.
         request.max_content_length = MAX_BEAT + 1024 * 1024
     if request.method == "POST":
@@ -469,46 +128,9 @@ def headers(resp):
     resp.headers.setdefault("Referrer-Policy", "same-origin")
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    if request.endpoint in ("lobby_state", "admin_imports") or resp.mimetype == "text/html":
+    if request.endpoint in ("lobby_state", "admin.admin_imports") or resp.mimetype == "text/html":
         resp.headers["Cache-Control"] = "no-store"
     return resp
-
-
-def limited(kind, who):
-    """True hvis graensen er naaet. Forsoeget taeller med uanset udfald.
-    Gemt i SQLite, saa begge gunicorn-workers ser samme taeller."""
-    limit, window = LIMITS[kind]
-    key = "{0}:{1}".format(kind, who)
-    t = now()
-    conn = db()
-    count = conn.execute("SELECT COUNT(*) FROM hits WHERE key = ? AND at > ?",
-                         (key, t - window)).fetchone()[0]
-    if count >= limit:
-        return True
-    conn.execute("INSERT INTO hits (key, at) VALUES (?, ?)", (key, t))
-    conn.commit()
-    return False
-
-
-def too_many(message="For mange forsøg. Vent lidt, og prøv igen."):
-    if wants_json():
-        resp = json_error(429, message)
-    else:
-        resp = app.make_response((render_template("error.html", title="Ro på",
-                                                  message=message), 429))
-    resp.headers["Retry-After"] = "60"
-    return resp
-
-
-# --------------------------------------------------------------------
-# Oprydning
-# --------------------------------------------------------------------
-
-def remove_file(path):
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        app.logger.warning("kunne ikke slette %s", path)
 
 
 def cleanup(conn):
@@ -568,18 +190,6 @@ def maybe_cleanup():
             app.logger.exception("oprydning fejlede")
 
 
-# --------------------------------------------------------------------
-# Lobbyer og spillere
-# --------------------------------------------------------------------
-
-def new_code(conn):
-    for _ in range(50):
-        code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LEN))
-        if not conn.execute("SELECT 1 FROM lobbies WHERE code = ?", (code,)).fetchone():
-            return code
-    raise RuntimeError("kunne ikke finde en ledig kode")
-
-
 def norm_code(code):
     code = (code or "").strip().upper().replace(" ", "")
     return code if CODE_RE.fullmatch(code) else ""
@@ -595,17 +205,34 @@ def lobby_or_404(code):
     return advance(row)
 
 
-def me_in(lobby):
+def me_in(lobby, depth=0):
     """Spilleren i den her lobby, ifoelge den signerede cookie."""
     pid = session.get("p", {}).get(lobby["code"])
     if pid is None:
-        return None
+        return carried_over(lobby, depth)
     row = db().execute("SELECT * FROM players WHERE id = ? AND lobby_id = ?",
                        (pid, lobby["id"])).fetchone()
     if row is None:                                   # smidt ud, eller slettet
         mine = dict(session.get("p", {}))
         mine.pop(lobby["code"], None)
         session["p"] = mine
+    return row
+
+
+def carried_over(lobby, depth):
+    """En ny runde med samme spillere: alle fra forrige runde er kopieret
+    med (players.from_id). Den der var med dengang, er med nu - uden at
+    skrive koden igen. Virker ogsaa hvis man har sprunget en runde over."""
+    if not lobby["parent_id"] or depth > 20:
+        return None
+    parent = db().execute("SELECT * FROM lobbies WHERE id = ?", (lobby["parent_id"],)).fetchone()
+    prev = me_in(parent, depth + 1) if parent is not None else None
+    if prev is None:
+        return None
+    row = db().execute("SELECT * FROM players WHERE lobby_id = ? AND from_id = ?",
+                       (lobby["id"], prev["id"])).fetchone()
+    if row is not None:
+        remember(lobby["code"], row["id"])
     return row
 
 
@@ -619,204 +246,6 @@ def remember(code, player_id):
     session["p"] = mine
     session.permanent = True
 
-
-def phase_of(lobby, t=None):
-    t = now() if t is None else t
-    status = lobby["status"]
-    if status == "running":
-        if lobby["turn_at"] is not None and t < lobby["turn_at"]:
-            return "spin"                             # det sidste hjul drejer stadig
-        return "reveal" if t < lobby["make_at"] else "make"
-    return {"lobby": "lobby", "spinning": "spin", "voting": "vote", "done": "result",
-            "closed": "closed"}[status]
-
-
-def genres_with_beats(conn):
-    return conn.execute(
-        "SELECT g.id, g.name, COUNT(b.id) AS beats FROM genres g"
-        " JOIN beats b ON b.genre_id = g.id GROUP BY g.id ORDER BY g.name").fetchall()
-
-
-def advance(lobby):
-    """Flytter lobbyen videre hvis tiden eller stemmerne siger det. Kaldes
-    ved hver forespoergsel. Hver overgang er en UPDATE ... WHERE status =
-    den gamle, saa kun en forespoergsel vinder den - ogsaa naar to workers
-    poller paa samme tid."""
-    conn = db()
-    t = now()
-    lid, status = lobby["id"], lobby["status"]
-
-    if status in ("lobby", "spinning", "running", "voting") and t >= lobby["created_at"] + LOBBY_SECONDS:
-        # En afstemning i gang faar sit resultat; alt andet lukker bare.
-        new = "done" if status == "voting" else "closed"
-        conn.execute("UPDATE lobbies SET status = ?, done_at = ? WHERE id = ? AND status = ?",
-                     (new, t, lid, status))
-        conn.commit()
-
-    elif status == "running" and t >= lobby["deadline"] + GRACE_SECONDS:
-        won = conn.execute(
-            "UPDATE lobbies SET status = 'voting', voting_at = ? WHERE id = ? AND status = 'running'",
-            (t, lid)).rowcount
-        if won:
-            subs = [r["id"] for r in conn.execute(
-                "SELECT id FROM submissions WHERE lobby_id = ?", (lid,))]
-            # Raekkefoelgen i afstemningen er tilfaeldig - ikke den
-            # raekkefoelge numrene blev afleveret i, og ikke holdnumrene.
-            secrets.SystemRandom().shuffle(subs)
-            for position, sid in enumerate(subs, start=1):
-                conn.execute("UPDATE submissions SET position = ? WHERE id = ?", (position, sid))
-            if not subs:
-                conn.execute("UPDATE lobbies SET status = 'done', done_at = ? WHERE id = ?", (t, lid))
-        conn.commit()
-
-    elif status == "spinning" and lobby["turn_at"] is not None \
-            and t >= lobby["turn_at"] + SPIN_SECONDS:
-        # Holdet der har tur, har ikke drejet. Serveren goer det - ogsaa for
-        # flere hold i traek, hvis ingen har kigget i et stykke tid. Hvert
-        # spin faar det tidspunkt, det skulle have haft.
-        turn_at = lobby["turn_at"]
-        while isinstance(turn_at, float) and t >= turn_at + SPIN_SECONDS:
-            turn_at = spin(conn, lid, turn_at + SPIN_SECONDS, by=None)
-
-    elif status == "voting" and voting_complete(conn, lid):
-        conn.execute("UPDATE lobbies SET status = 'done', done_at = ? WHERE id = ? AND status = 'voting'",
-                     (t, lid))
-        conn.commit()
-
-    return conn.execute("SELECT * FROM lobbies WHERE id = ?", (lid,)).fetchone()
-
-
-# --------------------------------------------------------------------
-# Hjulet
-# --------------------------------------------------------------------
-
-def team_on_turn(conn, lid):
-    return conn.execute(
-        "SELECT * FROM teams WHERE lobby_id = ? AND spun_at IS NULL"
-        " ORDER BY spin_order LIMIT 1", (lid,)).fetchone()
-
-
-def wheel_genres(conn, lid):
-    """Det hjulet viser: alle genrer med beats, plus dem der allerede er
-    trukket i lobbyen (hvis en admin har fjernet et beat siden)."""
-    names = {r["name"] for r in genres_with_beats(conn)}
-    names |= {r["genre_name"] for r in conn.execute(
-        "SELECT genre_name FROM teams WHERE lobby_id = ? AND genre_name != ''", (lid,))}
-    return sorted(names, key=str.casefold)
-
-
-def spin(conn, lid, at, by=None, team_id=None):
-    """Drejer hjulet for holdet der har tur, og giver det en genre ingen
-    andre har, og et tilfaeldigt beat i den. Hjulet viser bare det
-    resultat - det er serveren der trækker.
-
-    Returnerer hvornaar naeste tur begynder, None naar alle har drejet,
-    eller False hvis det ikke var `team_id`s tur (eller hjulet ikke stod
-    stille endnu). Det hele sker i en BEGIN IMMEDIATE, saa to workers
-    ikke kan dreje samme tur."""
-    if conn.in_transaction:
-        conn.commit()
-    conn.execute("BEGIN IMMEDIATE")
-    lobby = conn.execute("SELECT * FROM lobbies WHERE id = ?", (lid,)).fetchone()
-    team = team_on_turn(conn, lid)
-    if (lobby["status"] != "spinning" or team is None or at < lobby["turn_at"]
-            or (team_id is not None and team["id"] != team_id)):
-        conn.rollback()
-        return False
-
-    rng = secrets.SystemRandom()
-    taken = {r["genre_id"] for r in conn.execute(
-        "SELECT genre_id FROM teams WHERE lobby_id = ? AND genre_id IS NOT NULL", (lid,))}
-    available = genres_with_beats(conn)
-    free = [g for g in available if g["id"] not in taken]
-    if not free:
-        # Kun hvis en admin har fjernet beats midt i hjulet: saa hellere
-        # en genre to gange end en runde der sidder fast.
-        free = available
-    if not free:
-        conn.execute("UPDATE lobbies SET status = 'closed', done_at = ? WHERE id = ?", (at, lid))
-        conn.commit()
-        return None
-    genre = rng.choice(free)
-    beat = rng.choice(conn.execute("SELECT * FROM beats WHERE genre_id = ?", (genre["id"],)).fetchall())
-    conn.execute(
-        "UPDATE teams SET genre_id = ?, genre_name = ?, beat_id = ?, beat_title = ?,"
-        " spun_at = ?, spun_by = ? WHERE id = ?",
-        (genre["id"], genre["name"], beat["id"], beat["title"], at, by, team["id"]))
-
-    still = at + SPIN_MS / 1000 + SPIN_REST         # hjulet staar stille igen
-    if team_on_turn(conn, lid) is None:
-        make_at = still + REVEAL_SECONDS
-        conn.execute(
-            "UPDATE lobbies SET status = 'running', turn_at = ?, make_at = ?, deadline = ?"
-            " WHERE id = ?", (still, make_at, make_at + lobby["minutes"] * 60, lid))
-        conn.commit()
-        return None
-    conn.execute("UPDATE lobbies SET turn_at = ? WHERE id = ?", (still, lid))
-    conn.commit()
-    return still
-
-
-def vote_progress(conn, lid):
-    """(spillere der er faerdige, spillere der skal stemme, stemmer der
-    mangler i alt). Man stemmer paa alle numre undtagen sit eget holds."""
-    voters = conn.execute(
-        "SELECT p.id, p.team_id,"
-        "  (SELECT COUNT(*) FROM submissions s WHERE s.lobby_id = p.lobby_id"
-        "     AND s.team_id != p.team_id) AS need,"
-        "  (SELECT COUNT(*) FROM votes v JOIN submissions s ON s.id = v.submission_id"
-        "     WHERE v.player_id = p.id AND s.team_id != p.team_id) AS have"
-        " FROM players p WHERE p.lobby_id = ? AND p.team_id IS NOT NULL", (lid,)).fetchall()
-    voting = [v for v in voters if v["need"] > 0]
-    done = sum(1 for v in voting if v["have"] >= v["need"])
-    return done, len(voting), {v["id"]: (v["have"], v["need"]) for v in voters}
-
-
-def voting_complete(conn, lid):
-    done, total, _ = vote_progress(conn, lid)
-    return done >= total
-
-
-def make_teams(player_ids, size):
-    """Tilfaeldige hold. Antallet er spillere // stoerrelse, og de der er
-    tilovers fordeles ud - saa intet hold er mindre end den valgte
-    stoerrelse, og ingen to hold er mere end en fra hinanden."""
-    ids = list(player_ids)
-    secrets.SystemRandom().shuffle(ids)
-    count = max(1, len(ids) // size)
-    teams = [[] for _ in range(count)]
-    for i, pid in enumerate(ids):
-        teams[i % count].append(pid)
-    return teams
-
-
-def start_problem(conn, lobby, players):
-    """Hvorfor runden ikke kan starte endnu, eller None."""
-    size = lobby["team_size"]
-    need = 2 * size
-    if len(players) < need:
-        return ("Der skal være mindst {0} spillere, så der er to hold at stemme på."
-                .format(need) if size > 1 else
-                "Der skal være mindst 2 spillere.")
-    available = genres_with_beats(conn)
-    if not available:
-        return "Der er ingen beats endnu. En admin skal lægge nogle op."
-    teams = max(1, len(players) // size)
-    if teams > len(available):
-        return ("Der bliver {0} hold, men der er kun {1} genrer med beats — og alle skal have "
-                "hver sin. En admin kan lægge beats op i flere genrer, eller I kan spille på "
-                "større hold.".format(teams, len(available)))
-    left = lobby["created_at"] + LOBBY_SECONDS - now()
-    spinning = SPIN_INTRO + teams * (SPIN_SECONDS + SPIN_MS / 1000 + SPIN_REST)
-    if left < spinning + REVEAL_SECONDS + lobby["minutes"] * 60 + 15 * 60:
-        return ("Lobbyen udløber om {0} min. — der er ikke tid til en runde på {1} min. "
-                "Lav en ny lobby.".format(max(0, int(left // 60)), lobby["minutes"]))
-    return None
-
-
-# --------------------------------------------------------------------
-# Forsiden: opret og join
-# --------------------------------------------------------------------
 
 @app.get("/")
 def home():
@@ -908,10 +337,6 @@ def join():
     return redirect(url_for("lobby_page", code=code))
 
 
-# --------------------------------------------------------------------
-# Lobbyen
-# --------------------------------------------------------------------
-
 def member_or_403(lobby):
     me = me_in(lobby)
     if me is None:
@@ -958,169 +383,6 @@ def lobby_state(code):
         conn.execute("UPDATE players SET seen_at = ? WHERE id = ?", (t, me["id"]))
         conn.commit()
     return jsonify(state_for(conn, lobby, me, t))
-
-
-def state_for(conn, lobby, me, t):
-    lid = lobby["id"]
-    phase = phase_of(lobby, t)
-    is_owner = me["id"] == lobby["owner_id"]
-
-    teams = {r["id"]: r["number"] for r in conn.execute(
-        "SELECT id, number FROM teams WHERE lobby_id = ?", (lid,))}
-    players = conn.execute(
-        "SELECT * FROM players WHERE lobby_id = ? ORDER BY joined_at", (lid,)).fetchall()
-    my_team = me["team_id"]
-
-    state = {
-        "phase": phase,
-        "now": ms(t),
-        "code": lobby["code"],
-        "expires": ms(lobby["created_at"] + LOBBY_SECONDS),
-        "me": {"id": me["id"], "name": me["name"], "owner": is_owner,
-               "team": teams.get(my_team)},
-        "settings": {"minutes": lobby["minutes"], "team_size": lobby["team_size"]},
-        "players": [{
-            "id": p["id"], "name": p["name"],
-            "owner": p["id"] == lobby["owner_id"],
-            "me": p["id"] == me["id"],
-            "online": t - p["seen_at"] < ONLINE_SECONDS,
-            "team": teams.get(p["team_id"]),
-        } for p in players],
-    }
-
-    if phase == "lobby":
-        state["start_problem"] = start_problem(conn, lobby, players)
-        return state
-
-    if phase == "closed":
-        return state
-
-    # Fra hjulet og frem: holdene er trukket, og genrerne kommer en ad gangen.
-    members = {}
-    for p in players:
-        if p["team_id"] in teams:
-            members.setdefault(teams[p["team_id"]], []).append(p["name"])
-    rows = {r["id"]: r for r in conn.execute("SELECT * FROM teams WHERE lobby_id = ?", (lid,))}
-    genre_of = {r["number"]: team_genre(lobby, r) for r in rows.values()}
-    mine_row = rows.get(my_team)
-    genre, beat_title, beat_id = team_genre(lobby, mine_row) if mine_row else ("", "", None)
-    state["round"] = {
-        "genre": genre,
-        "beat": beat_title,
-        "beat_url": url_for("beat_file", code=lobby["code"]) if beat_id else None,
-        "make_at": ms(lobby["make_at"]),
-        "deadline": ms(lobby["deadline"]),
-        "grace": GRACE_SECONDS,
-        "minutes": lobby["minutes"],
-        "teams": [{"number": n, "members": members.get(n, []), "genre": genre_of[n][0],
-                   "mine": n == teams.get(my_team)} for n in sorted(set(teams.values()))],
-        "solo": lobby["team_size"] == 1,
-    }
-
-    if phase == "spin":
-        on_turn = team_on_turn(conn, lid)
-        state["spin"] = {
-            "wheel": wheel_genres(conn, lid),
-            "order": [{
-                "number": r["number"],
-                "members": members.get(r["number"], []),
-                "mine": r["id"] == my_team,
-                "genre": r["genre_name"] or None,
-                "spun_at": ms(r["spun_at"]),
-                "auto": r["spun_at"] is not None and r["spun_by"] is None,
-            } for r in sorted(rows.values(), key=lambda r: r["spin_order"] or 0)],
-            "current": on_turn["number"] if on_turn else None,
-            "my_turn": bool(on_turn) and on_turn["id"] == my_team,
-            "turn_at": ms(lobby["turn_at"]),
-            "turn_seconds": SPIN_SECONDS,
-            "spin_ms": SPIN_MS,
-            "spin_url": url_for("spin_wheel", code=lobby["code"]),
-        }
-        return state
-
-    subs = conn.execute(
-        "SELECT s.*, p.name AS by_name FROM submissions s"
-        " LEFT JOIN players p ON p.id = s.player_id WHERE s.lobby_id = ?", (lid,)).fetchall()
-
-    if phase in ("reveal", "make"):
-        mine = next((s for s in subs if s["team_id"] == my_team), None)
-        state["make"] = {
-            "delivered": sorted(teams[s["team_id"]] for s in subs),
-            "teams": len(teams),
-            "mine": None if mine is None else {
-                "at": ms(mine["uploaded_at"]), "by": mine["by_name"],
-                "seconds": round(mine["seconds"], 1), "size": mine["size"],
-                "url": url_for("track_file", code=lobby["code"], sid=mine["id"]),
-            },
-            "max_bytes": MAX_UPLOAD,
-            "upload_url": url_for("submit", code=lobby["code"]),
-        }
-        return state
-
-    if phase == "vote":
-        mine = {r["submission_id"]: r["flames"] for r in conn.execute(
-            "SELECT submission_id, flames FROM votes WHERE player_id = ?", (me["id"],))}
-        done, total, per = vote_progress(conn, lid)
-        have, need = per.get(me["id"], (0, 0))
-        state["vote"] = {
-            "tracks": [{
-                "id": s["id"],
-                "label": "Nummer {0}".format(s["position"]),
-                "url": url_for("track_file", code=lobby["code"], sid=s["id"]),
-                "seconds": round(s["seconds"], 1),
-                "mine": s["team_id"] == my_team,
-                "flames": mine.get(s["id"]),
-            } for s in sorted(subs, key=lambda s: s["position"] or 0)],
-            "done_players": done,
-            "voters": total,
-            "my_have": have,
-            "my_need": need,
-            "vote_url": url_for("vote", code=lobby["code"]),
-        }
-        return state
-
-    # Resultat. Navnene kommer frem.
-    scores = {r["submission_id"]: (r["total"], r["n"]) for r in conn.execute(
-        "SELECT v.submission_id, SUM(v.flames) AS total, COUNT(*) AS n FROM votes v"
-        " JOIN submissions s ON s.id = v.submission_id WHERE s.lobby_id = ?"
-        " GROUP BY v.submission_id", (lid,))}
-    ranked = []
-    for s in subs:
-        total, n = scores.get(s["id"], (0, 0))
-        ranked.append({
-            "id": s["id"],
-            "label": "Nummer {0}".format(s["position"]) if s["position"] else "",
-            "team": teams[s["team_id"]],
-            "genre": genre_of[teams[s["team_id"]]][0],
-            "members": members.get(teams[s["team_id"]], []),
-            "by": s["by_name"],
-            "average": round(total / n, 2) if n else None,
-            "votes": n,
-            "seconds": round(s["seconds"], 1),
-            "url": url_for("track_file", code=lobby["code"], sid=s["id"]),
-            "mine": s["team_id"] == my_team,
-        })
-    ranked.sort(key=lambda r: (r["average"] is None, -(r["average"] or 0), -r["votes"]))
-    place, last = 0, object()
-    for i, r in enumerate(ranked, start=1):
-        if r["average"] != last:                      # lige gennemsnit, samme plads
-            place, last = i, r["average"]
-        r["place"] = place if r["average"] is not None else None
-    delivered = {teams[s["team_id"]] for s in subs}
-    state["result"] = {
-        "ranking": ranked,
-        "missing": [{"team": n, "members": members.get(n, [])}
-                    for n in sorted(set(teams.values())) if n not in delivered],
-    }
-    return state
-
-
-def team_genre(lobby, team):
-    """(genre, beattitel, beat-id) for et hold. Runder fra foer hjulet havde
-    en genre for hele lobbyen - de bruger den."""
-    if team["genre_name"]:
-        return team["genre_name"], team["beat_title"], team["beat_id"]
-    return lobby["genre_name"], lobby["beat_title"], lobby["beat_id"]
 
 
 @app.post("/l/<code>/indstillinger")
@@ -1243,10 +505,51 @@ def spin_wheel(code):
     return jsonify({"ok": True})
 
 
+@app.post("/l/<code>/ny-runde")
+def next_round(code):
+    """En ny runde med de samme spillere og samme indstillinger. Alle fra
+    runden er med i den nye lobby (players.from_id), og pointene laegges
+    sammen. Trykker ejeren to gange, er det samme nye runde."""
+    lobby = lobby_or_404(code)
+    me = owner_or_403(lobby)
+    back = url_for("lobby_page", code=lobby["code"])
+    conn = db()
+    if lobby["status"] != "done":
+        return fail(409, "Runden er ikke færdig endnu.", back)
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    child = conn.execute("SELECT code FROM lobbies WHERE parent_id = ?", (lobby["id"],)).fetchone()
+    if child:
+        conn.rollback()
+        return redirect(url_for("lobby_page", code=child["code"]))
+    t = now()
+    new = new_code(conn)
+    lid = conn.execute(
+        "INSERT INTO lobbies (code, minutes, team_size, created_at, parent_id, round_no)"
+        " VALUES (?,?,?,?,?,?)",
+        (new, lobby["minutes"], lobby["team_size"], t, lobby["id"], (lobby["round_no"] or 1) + 1)).lastrowid
+    owner = None
+    players = conn.execute("SELECT * FROM players WHERE lobby_id = ? ORDER BY joined_at",
+                           (lobby["id"],)).fetchall()
+    for i, pl in enumerate(players):
+        pid = conn.execute(
+            "INSERT INTO players (lobby_id, name, joined_at, seen_at, from_id) VALUES (?,?,?,?,?)",
+            (lid, pl["name"], t + i / 1000, pl["seen_at"], pl["id"])).lastrowid
+        if pl["id"] == me["id"]:
+            owner = pid
+    conn.execute("UPDATE lobbies SET owner_id = ? WHERE id = ?", (owner, lid))
+    conn.commit()
+    remember(new, owner)
+    return redirect(url_for("lobby_page", code=new))
+
+
 @app.post("/l/<code>/afslut")
 def finish_phase(code):
-    """Ejeren kan lukke afleveringen eller afstemningen foer tid - fx
-    naar alle er klar, eller en spiller er gaaet hjem uden at stemme."""
+    """Ejeren kan lukke en fase foer tid - fx naar alle er klar, eller en
+    spiller er gaaet hjem. Fra lav-fasen gaar det til den ekstra tid (saa de
+    andre stadig faar den), fra den ekstra tid til afstemningen, og fra
+    afstemningen til resultatet."""
     lobby = lobby_or_404(code)
     owner_or_403(lobby)
     back = url_for("lobby_page", code=lobby["code"])
@@ -1254,8 +557,11 @@ def finish_phase(code):
     phase = phase_of(lobby)
     t = now()
     if phase in ("reveal", "make"):
+        conn.execute("UPDATE lobbies SET make_at = MIN(make_at, ?), deadline = ?"
+                     " WHERE id = ? AND status = 'running'", (t, t, lobby["id"]))
+    elif phase == "extra":
         conn.execute("UPDATE lobbies SET deadline = ? WHERE id = ? AND status = 'running'",
-                     (t - GRACE_SECONDS, lobby["id"]))
+                     (t - EXTRA_SECONDS - GRACE_SECONDS, lobby["id"]))
     elif phase == "vote":
         conn.execute("UPDATE lobbies SET status = 'done', done_at = ? WHERE id = ? AND status = 'voting'",
                      (t, lobby["id"]))
@@ -1265,10 +571,6 @@ def finish_phase(code):
     advance(conn.execute("SELECT * FROM lobbies WHERE id = ?", (lobby["id"],)).fetchone())
     return redirect(back)
 
-
-# --------------------------------------------------------------------
-# Beat, aflevering, afstemning
-# --------------------------------------------------------------------
 
 def safe_download_name(*parts):
     text = " - ".join(p for p in parts if p)
@@ -1298,22 +600,6 @@ def beat_file(code):
         + "." + beat["kind"] if download else None)
 
 
-def save_upload(storage, limit):
-    """Stream til en midlertidig fil, tjek indholdet, og flyt den ind under
-    et tilfaeldigt navn. Brugerens filnavn roeres aldrig - det bliver
-    hverken brugt paa disken eller gemt."""
-    tmp = TMP / (secrets.token_hex(16) + ".part")
-    try:
-        storage.save(tmp)
-        if tmp.stat().st_size > limit:
-            raise audio.NotAudio("Filen er over {0} MB.".format(limit // (1024 * 1024)))
-        kind, _mime, seconds = audio.inspect(tmp)
-    except Exception:
-        remove_file(tmp)
-        raise
-    return tmp, kind, seconds, tmp.stat().st_size
-
-
 @app.post("/l/<code>/aflever")
 def submit(code):
     lobby = lobby_or_404(code)
@@ -1326,7 +612,7 @@ def submit(code):
         return fail(409, "Du er ikke på et hold i den her runde.", back)
     if lobby["status"] != "running":
         return fail(409, "Afleveringen er lukket.", back)
-    if now() > lobby["deadline"] + GRACE_SECONDS:
+    if now() > closes_at(lobby) + GRACE_SECONDS:
         return fail(409, "Tiden er gået. Afleveringen er lukket.", back)
 
     storage = request.files.get("track")
@@ -1346,7 +632,7 @@ def submit(code):
         conn.commit()
     conn.execute("BEGIN IMMEDIATE")
     fresh = conn.execute("SELECT status, deadline FROM lobbies WHERE id = ?", (lobby["id"],)).fetchone()
-    if fresh["status"] != "running" or now() > fresh["deadline"] + GRACE_SECONDS:
+    if fresh["status"] != "running" or now() > closes_at(fresh) + GRACE_SECONDS:
         conn.rollback()
         remove_file(tmp)
         return fail(409, "Tiden løb ud mens filen blev sendt. Afleveringen er lukket.", back)
@@ -1421,296 +707,6 @@ def vote(code):
     return jsonify({"ok": True})
 
 
-# --------------------------------------------------------------------
-# Admin: genrer og beats
-# --------------------------------------------------------------------
-
-ADMIN_SECONDS = 12 * 3600
-
-
-def is_admin():
-    at = session.get("admin")
-    return isinstance(at, (int, float)) and now() - at < ADMIN_SECONDS
-
-
-def admin_required(view):
-    @wraps(view)
-    def wrapped(*a, **kw):
-        if not is_admin():
-            return redirect(url_for("admin"))
-        return view(*a, **kw)
-    return wrapped
-
-
-@app.get("/admin")
-def admin():
-    if not is_admin():
-        return render_template("admin_login.html")
-    conn = db()
-    genres = conn.execute(
-        "SELECT g.*, COUNT(b.id) AS beats FROM genres g LEFT JOIN beats b ON b.genre_id = g.id"
-        " GROUP BY g.id ORDER BY g.name").fetchall()
-    beats = conn.execute(
-        "SELECT b.*, g.name AS genre FROM beats b JOIN genres g ON g.id = b.genre_id"
-        " ORDER BY g.name, b.title").fetchall()
-    stats = {
-        "lobbies": conn.execute("SELECT COUNT(*) FROM lobbies WHERE status IN ('lobby','spinning','running','voting')").fetchone()[0],
-        "subs": conn.execute("SELECT COUNT(*), COALESCE(SUM(size), 0) FROM submissions").fetchone(),
-    }
-    return render_template("admin.html", genres=genres, beats=beats, stats=stats,
-                           max_beat=MAX_BEAT, keep_days=KEEP_SECONDS // 86400,
-                           imports=recent_imports(conn), yt_minutes=YT_MAX_SECONDS // 60)
-
-
-@app.post("/admin/login")
-def admin_login():
-    if limited("admin", client_ip()):
-        return too_many("For mange forkerte forsøg. Vent et kvarter.")
-    sent = request.form.get("password", "")
-    if not hmac.compare_digest(sent.encode(), ADMIN_PASSWORD.encode()):
-        flash("Forkert adgangskode.")
-        return redirect(url_for("admin"))
-    # Ny cookie-identitet ved login, men behold de lobbyer man er med i.
-    players = session.get("p", {})
-    session.clear()
-    session["p"] = players
-    session["admin"] = now()
-    session.permanent = True
-    return redirect(url_for("admin"))
-
-
-@app.post("/admin/logout")
-def admin_logout():
-    session.pop("admin", None)
-    return redirect(url_for("home"))
-
-
-@app.post("/admin/genre")
-@admin_required
-def admin_genre_create():
-    name = clean_text(request.form.get("name"), 40)
-    if not name:
-        return fail(400, "Genren skal have et navn.", url_for("admin"))
-    try:
-        db().execute("INSERT INTO genres (name, created_at) VALUES (?, ?)", (name, now()))
-        db().commit()
-    except sqlite3.IntegrityError:
-        return fail(409, "Genren {0} findes allerede.".format(name), url_for("admin"))
-    return redirect(url_for("admin"))
-
-
-@app.post("/admin/genre/<int:gid>/omdoeb")
-@admin_required
-def admin_genre_rename(gid):
-    name = clean_text(request.form.get("name"), 40)
-    if not name:
-        return fail(400, "Genren skal have et navn.", url_for("admin"))
-    try:
-        db().execute("UPDATE genres SET name = ? WHERE id = ?", (name, gid))
-        db().commit()
-    except sqlite3.IntegrityError:
-        return fail(409, "Der er allerede en genre der hedder {0}.".format(name), url_for("admin"))
-    return redirect(url_for("admin"))
-
-
-@app.post("/admin/genre/<int:gid>/slet")
-@admin_required
-def admin_genre_delete(gid):
-    conn = db()
-    if conn.execute("SELECT 1 FROM beats WHERE genre_id = ?", (gid,)).fetchone():
-        return fail(409, "Genren har beats. Slet dem først.", url_for("admin"))
-    conn.execute("DELETE FROM genres WHERE id = ?", (gid,))
-    # Lobbyer der havde valgt den, falder tilbage til tilfaeldig.
-    conn.execute("UPDATE lobbies SET genre_id = NULL WHERE genre_id = ? AND status = 'lobby'", (gid,))
-    conn.commit()
-    return redirect(url_for("admin"))
-
-
-@app.post("/admin/beat")
-@admin_required
-def admin_beat_create():
-    title = clean_text(request.form.get("title"), TITLE_MAX)
-    try:
-        gid = int(request.form.get("genre", ""))
-    except ValueError:
-        gid = None
-    if not title:
-        return fail(400, "Beatet skal have en titel.", url_for("admin"))
-    if gid is None or not db().execute("SELECT 1 FROM genres WHERE id = ?", (gid,)).fetchone():
-        return fail(400, "Vælg en genre.", url_for("admin"))
-    storage = request.files.get("file")
-    if storage is None or not storage.filename:
-        return fail(400, "Vælg en mp3- eller wav-fil.", url_for("admin"))
-    try:
-        tmp, kind, seconds, size = save_upload(storage, MAX_BEAT)
-    except audio.NotAudio as exc:
-        return fail(415, str(exc), url_for("admin"))
-    bid = secrets.token_hex(16)
-    os.replace(tmp, BEATS / (bid + "." + kind))
-    db().execute(
-        "INSERT INTO beats (id, genre_id, title, file, kind, size, seconds, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?)",
-        (bid, gid, title, bid + "." + kind, kind, size, seconds, now()))
-    db().commit()
-    flash("{0} er lagt op ({1}).".format(title, clock(seconds)))
-    return redirect(url_for("admin"))
-
-
-# --------------------------------------------------------------------
-# Admin: beats fra YouTube
-# --------------------------------------------------------------------
-
-def spawn(fn, *args):
-    """Koer i baggrunden. Testene skifter den ud, saa det sker med det samme."""
-    threading.Thread(target=fn, args=args, daemon=True).start()
-
-
-def run_import(import_id):
-    """Hent, tjek og gem et beat fra YouTube. Koerer i sin egen traad med
-    sin egen forbindelse til databasen - ikke i en forespoergsel."""
-    conn = connect()
-    try:
-        job = conn.execute("SELECT * FROM imports WHERE id = ?", (import_id,)).fetchone()
-        if job is None:
-            return
-        try:
-            path, yt_title = youtube.fetch(job["video"], TMP, MAX_BEAT, YT_MAX_SECONDS)
-        except youtube.FetchError as exc:
-            finish_import(conn, import_id, "failed", str(exc))
-            return
-        try:
-            if path.stat().st_size > MAX_BEAT:
-                raise audio.NotAudio("Filen er over {0} MB.".format(MAX_BEAT // (1024 * 1024)))
-            kind, _mime, seconds = audio.inspect(path)
-        except (audio.NotAudio, OSError) as exc:
-            remove_file(path)
-            finish_import(conn, import_id, "failed", "Filen fra YouTube kunne ikke bruges: {0}".format(exc))
-            return
-        title = job["title"] or clean_text(youtube.clean_title(yt_title), TITLE_MAX)
-        bid = secrets.token_hex(16)
-        size = path.stat().st_size
-        os.replace(path, BEATS / (bid + "." + kind))
-        if not conn.execute("SELECT 1 FROM genres WHERE id = ?", (job["genre_id"],)).fetchone():
-            remove_file(BEATS / (bid + "." + kind))
-            finish_import(conn, import_id, "failed", "Genren er slettet, mens beatet blev hentet.")
-            return
-        conn.execute(
-            "INSERT INTO beats (id, genre_id, title, file, kind, size, seconds, created_at, source)"
-            " VALUES (?,?,?,?,?,?,?,?,?)",
-            (bid, job["genre_id"], title, bid + "." + kind, kind, size, seconds, now(),
-             "youtube:" + job["video"]))
-        conn.execute("UPDATE imports SET status = 'done', message = ?, beat_id = ?, title = ?,"
-                     " updated_at = ? WHERE id = ?",
-                     ("{0} er lagt op ({1}).".format(title, clock(seconds)), bid, title, now(), import_id))
-        conn.commit()
-    except Exception:                                  # aldrig en hentning der haenger i "koerer"
-        app.logger.exception("YouTube-hentning %s fejlede", import_id)
-        try:
-            finish_import(conn, import_id, "failed", "Noget gik galt på serveren. Se loggen.")
-        except sqlite3.Error:
-            pass
-    finally:
-        conn.close()
-
-
-def finish_import(conn, import_id, status, message):
-    conn.execute("UPDATE imports SET status = ?, message = ?, updated_at = ? WHERE id = ?",
-                 (status, message, now(), import_id))
-    conn.commit()
-
-
-def recent_imports(conn):
-    """Hentninger fra den sidste time - og dem der stadig koerer. En der har
-    "koert" i et kvarter, er doed (serveren er genstartet midt i)."""
-    t = now()
-    conn.execute("UPDATE imports SET status = 'failed', message = ?, updated_at = ?"
-                 " WHERE status = 'running' AND created_at < ?",
-                 ("Hentningen blev afbrudt — serveren blev nok genstartet. Prøv igen.", t,
-                  t - YT_STALE_SECONDS))
-    conn.commit()
-    rows = conn.execute(
-        "SELECT i.*, g.name AS genre FROM imports i LEFT JOIN genres g ON g.id = i.genre_id"
-        " WHERE i.status = 'running' OR i.updated_at > ? ORDER BY i.created_at DESC, i.id DESC LIMIT 12",
-        (t - 3600,)).fetchall()
-    return [{"id": r["id"], "status": r["status"], "message": r["message"],
-             "title": r["title"], "genre": r["genre"] or "",
-             "url": youtube.watch_url(r["video"])} for r in rows]
-
-
-@app.post("/admin/youtube")
-@admin_required
-def admin_youtube():
-    back = url_for("admin")
-    vid = youtube.video_id(request.form.get("url"))
-    title = clean_text(request.form.get("title"), TITLE_MAX)
-    try:
-        gid = int(request.form.get("genre", ""))
-    except ValueError:
-        gid = None
-    if vid is None:
-        return fail(400, "Det er ikke et link til en YouTube-video. Brug linket fra adresselinjen "
-                         "eller Del-knappen.", back)
-    conn = db()
-    if gid is None or not conn.execute("SELECT 1 FROM genres WHERE id = ?", (gid,)).fetchone():
-        return fail(400, "Vælg en genre.", back)
-    have = conn.execute("SELECT title FROM beats WHERE source = ?", ("youtube:" + vid,)).fetchone()
-    if have:
-        return fail(409, "Den video er lagt op før — som {0}.".format(have["title"]), back)
-    recent_imports(conn)                               # rydder doede hentninger op foerst
-    if conn.execute("SELECT 1 FROM imports WHERE video = ? AND status = 'running'", (vid,)).fetchone():
-        return fail(409, "Den video bliver hentet lige nu.", back)
-    if conn.execute("SELECT COUNT(*) FROM imports WHERE status = 'running'").fetchone()[0] >= YT_PARALLEL:
-        return fail(429, "Der hentes allerede {0} beats. Vent til de er færdige.".format(YT_PARALLEL), back)
-    t = now()
-    import_id = conn.execute(
-        "INSERT INTO imports (video, title, genre_id, created_at, updated_at) VALUES (?,?,?,?,?)",
-        (vid, title, gid, t, t)).lastrowid
-    conn.commit()
-    spawn(run_import, import_id)
-    flash("Henter beatet fra YouTube … Det tager typisk 10–30 sekunder.")
-    return redirect(back)
-
-
-@app.get("/admin/hentninger")
-@admin_required
-def admin_imports():
-    return jsonify({"imports": recent_imports(db())})
-
-
-@app.post("/admin/beat/<bid>/slet")
-@admin_required
-def admin_beat_delete(bid):
-    conn = db()
-    beat = conn.execute("SELECT * FROM beats WHERE id = ?", (bid,)).fetchone()
-    if beat is None:
-        abort(404)
-    busy = conn.execute(
-        "SELECT COUNT(*) FROM lobbies l WHERE l.status IN ('spinning', 'running', 'voting')"
-        " AND (l.beat_id = ? OR EXISTS (SELECT 1 FROM teams t WHERE t.lobby_id = l.id AND t.beat_id = ?))",
-        (bid, bid)).fetchone()[0]
-    if busy:
-        return fail(409, "{0} bruges i en runde lige nu. Prøv igen når den er slut."
-                    .format(beat["title"]), url_for("admin"))
-    conn.execute("DELETE FROM beats WHERE id = ?", (bid,))
-    conn.commit()
-    remove_file(BEATS / beat["file"])
-    return redirect(url_for("admin"))
-
-
-@app.get("/admin/beat/<bid>/lyd")
-@admin_required
-def admin_beat_audio(bid):
-    beat = db().execute("SELECT * FROM beats WHERE id = ?", (bid,)).fetchone()
-    if beat is None:
-        abort(404)
-    return send_file(BEATS / beat["file"], conditional=True,
-                     mimetype="audio/mpeg" if beat["kind"] == "mp3" else "audio/wav")
-
-
-# --------------------------------------------------------------------
-# Drift og fejl
-# --------------------------------------------------------------------
-
 @app.get("/healthz")
 def healthz():
     db().execute("SELECT 1").fetchone()
@@ -1719,7 +715,7 @@ def healthz():
 
 @app.errorhandler(RequestEntityTooLarge)
 def too_large(_e):
-    limit = MAX_BEAT if request.endpoint == "admin_beat_create" else MAX_UPLOAD
+    limit = MAX_BEAT if request.endpoint == "admin.admin_beat_create" else MAX_UPLOAD
     message = "Filen er for stor. Grænsen er {0} MB.".format(limit // (1024 * 1024))
     if wants_json():
         return json_error(413, message)
@@ -1741,10 +737,6 @@ def not_found(_e):
     return render_template("error.html", title="Findes ikke",
                            message="Lobbyen eller siden findes ikke — måske er den udløbet."), 404
 
-
-# --------------------------------------------------------------------
-# Opstart
-# --------------------------------------------------------------------
 
 def setup():
     check_config()

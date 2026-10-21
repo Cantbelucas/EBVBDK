@@ -176,6 +176,14 @@ udseendet.
 
 ## Deploy af opdateringer
 
+Kør testene først — de tager et halvt minut og kræver ikke Docker:
+
+```bash
+cd songwars && python tests/test_songwars.py
+```
+
+Skriver den `0 fejl`, er den klar.
+
 Tilføj en linje til `~/deploy.sh` på serveren, efter EBVB:
 
 ```bash

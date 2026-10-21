@@ -1,5 +1,6 @@
 # deno er den JavaScript-motor yt-dlp skal bruge for at hente fra YouTube.
-FROM denoland/deno:bin-2.1.4 AS deno
+# yt-dlp kræver deno 2.3 eller nyere.
+FROM denoland/deno:bin-2.9.7 AS deno
 
 FROM python:3.12-slim
 
@@ -21,7 +22,7 @@ COPY --from=deno /deno /usr/local/bin/deno
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py audio.py youtube.py ./
+COPY app.py core.py database.py game.py admin.py audio.py youtube.py ./
 COPY templates/ templates/
 COPY static/ static/
 

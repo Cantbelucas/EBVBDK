@@ -951,6 +951,14 @@ body[data-phase="spin"]::after {
 .timer.is-hot .timer__digits   { color: var(--accent); text-shadow: 0 0 24px rgba(244, 212, 58, 0.25); animation: glow 1s ease-in-out infinite; }
 .timer.is-final .timer__digits { color: var(--bad); text-shadow: 0 0 24px rgba(228, 123, 98, 0.35); animation: glow 0.5s ease-in-out infinite; }
 .timer.is-over .timer__digits  { color: var(--faint); text-shadow: none; animation: none; }
+/* Den ekstra tid: uret er orange, saa man kan se at det er sidste chance. */
+.timer.is-extra .timer__digits { color: var(--flame); text-shadow: 0 0 24px rgba(227, 160, 76, 0.3); }
+.timer.is-extra .timer__label  { color: var(--flame); }
+.timer.is-extra.is-final .timer__digits { color: var(--bad); }
+
+.vote-clock { margin: calc(var(--s2) * -1) 0 var(--s4); font-size: var(--fs-small); color: var(--muted); font-variant-numeric: tabular-nums; }
+.vote-clock:empty { display: none; }
+.vote-clock.is-hot { color: var(--accent); font-weight: 600; }
 @keyframes glow { 50% { opacity: 0.62; } }
 
 .beatcard {
@@ -1153,6 +1161,33 @@ body[data-phase="spin"]::after {
 .rank__avg { font-weight: 600; font-size: var(--fs-small); }
 .rank__meta { font-size: 13px; color: var(--muted); }
 .rank--mine .rank__members::after { content: " · jer"; color: var(--good); }
+
+/* Stillingen over flere runder: en menu-liste, foerstepladsen i gult. */
+.series { margin: var(--s4) 0 var(--s5); }
+.series .field__label { display: block; margin-bottom: var(--s2); }
+.series__list { display: grid; border-top: 1px solid var(--line-soft); counter-reset: place; }
+.series__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s2) var(--s2);
+  border-bottom: 1px solid var(--line-soft);
+  counter-increment: place;
+}
+.series__row::before {
+  content: counter(place);
+  flex: none;
+  width: 1.6em;
+  font-weight: 600;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.series__name { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.series__points { font-size: var(--fs-small); color: var(--muted); white-space: nowrap; }
+.series__row.is-top .series__name, .series__row.is-top::before { color: var(--accent); }
+.series__row.is-me { background: linear-gradient(90deg, rgba(244, 212, 58, 0.08), transparent 80%); }
+
+.again { display: flex; flex-wrap: wrap; gap: var(--s3); }
 
 .missing { margin-bottom: var(--s5); font-size: var(--fs-small); color: var(--muted); }
 .missing__head { margin-bottom: var(--s1); }

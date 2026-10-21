@@ -3,7 +3,7 @@
 {% block mainclass %}wrap wrap--wide{% endblock %}
 
 {% block topright %}
-<form method="post" action="{{ url_for('admin_logout') }}">
+<form method="post" action="{{ url_for('admin.admin_logout') }}">
   <input type="hidden" name="csrf" value="{{ csrf_token() }}">
   <button class="btn" type="submit">Log ud</button>
 </form>
@@ -25,7 +25,7 @@
   <section class="card" aria-labelledby="genres-title">
     <h2 class="card__title" id="genres-title">Genrer</h2>
 
-    <form class="inline-form" method="post" action="{{ url_for('admin_genre_create') }}">
+    <form class="inline-form" method="post" action="{{ url_for('admin.admin_genre_create') }}">
       <input type="hidden" name="csrf" value="{{ csrf_token() }}">
       <label class="sr" for="new-genre">Ny genre</label>
       <input class="input" id="new-genre" name="name" maxlength="40" required>
@@ -37,7 +37,7 @@
         {% for g in genres %}
           <li class="rows__item">
             <form class="inline-form inline-form--grow" method="post"
-                  action="{{ url_for('admin_genre_rename', gid=g.id) }}">
+                  action="{{ url_for('admin.admin_genre_rename', gid=g.id) }}">
               <input type="hidden" name="csrf" value="{{ csrf_token() }}">
               <label class="sr" for="genre-{{ g.id }}">Navn</label>
               <input class="input input--quiet" id="genre-{{ g.id }}" name="name"
@@ -46,7 +46,7 @@
             </form>
             <span class="rows__meta">{{ g.beats }} {{ 'beat' if g.beats == 1 else 'beats' }}</span>
             {% if not g.beats %}
-              <form method="post" action="{{ url_for('admin_genre_delete', gid=g.id) }}"
+              <form method="post" action="{{ url_for('admin.admin_genre_delete', gid=g.id) }}"
                     data-confirm="Slet genren {{ g.name }}?">
                 <input type="hidden" name="csrf" value="{{ csrf_token() }}">
                 <button class="btn btn--danger" type="submit">Slet</button>
@@ -64,7 +64,7 @@
     <h2 class="card__title" id="beat-up-title">Læg et beat op</h2>
     {% if genres %}
       {# Fra YouTube: serveren henter lyden selv (yt-dlp + ffmpeg) i baggrunden. #}
-      <form method="post" action="{{ url_for('admin_youtube') }}" class="yt" data-busy="Starter hentningen …">
+      <form method="post" action="{{ url_for('admin.admin_youtube') }}" class="yt" data-busy="Starter hentningen …">
         <input type="hidden" name="csrf" value="{{ csrf_token() }}">
         <label class="field">
           <span class="field__label">Link til YouTube</span>
@@ -85,7 +85,7 @@
         <p class="muted yt__note">Kun én video ad gangen, højst {{ yt_minutes }} min. Den gemmes som mp3.</p>
       </form>
 
-      <div class="imports" id="imports" data-url="{{ url_for('admin_imports') }}"
+      <div class="imports" id="imports" data-url="{{ url_for('admin.admin_imports') }}"
            {% if not imports %}hidden{% endif %}>
         <p class="field__label">Hentninger</p>
         <ul class="imports__list" id="imports-list" aria-live="polite">
@@ -100,7 +100,7 @@
 
       <p class="yt__or"><span>eller upload en fil</span></p>
 
-      <form method="post" action="{{ url_for('admin_beat_create') }}" enctype="multipart/form-data"
+      <form method="post" action="{{ url_for('admin.admin_beat_create') }}" enctype="multipart/form-data"
             data-busy="Sender beatet …">
         <input type="hidden" name="csrf" value="{{ csrf_token() }}">
         <label class="field">
@@ -136,8 +136,8 @@
             <span class="beats__title">{{ b.title }}</span>
             <span class="rows__meta">{{ b.genre }} · {{ clock(b.seconds) }} · {{ b.kind }} · {{ '%.1f' | format(b.size / 1048576) | replace('.', ',') }} MB{% if b.source and b.source.startswith('youtube:') %} · <a href="https://www.youtube.com/watch?v={{ b.source[8:] }}" rel="noopener noreferrer" target="_blank">YouTube</a>{% endif %}</span>
           </div>
-          <audio class="player" controls preload="none" src="{{ url_for('admin_beat_audio', bid=b.id) }}"></audio>
-          <form method="post" action="{{ url_for('admin_beat_delete', bid=b.id) }}"
+          <audio class="player" controls preload="none" src="{{ url_for('admin.admin_beat_audio', bid=b.id) }}"></audio>
+          <form method="post" action="{{ url_for('admin.admin_beat_delete', bid=b.id) }}"
                 data-confirm="Slet {{ b.title }}? Filen bliver slettet.">
             <input type="hidden" name="csrf" value="{{ csrf_token() }}">
             <button class="btn btn--danger" type="submit">Slet</button>

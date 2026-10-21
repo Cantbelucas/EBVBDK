@@ -113,6 +113,8 @@
     var t = serverNow();
     if (phase === "reveal") return t >= state.round.make_at - 500;
     if (phase === "make") return t >= state.round.deadline - 1000;
+    if (phase === "extra") return t >= state.round.closes - 1000;
+    if (phase === "vote" && state.vote && state.vote.deadline) return t >= state.vote.deadline - 1000;
     if (phase === "spin" && state.spin) return true;
     return false;
   }
@@ -127,6 +129,7 @@
     lobby: "Lobby · venter på spillere",
     spin: "Genrehjulet",
     reveal: "Jeres genre og beat",
+    extra: "Ekstra tid",
     make: "Runden er i gang",
     vote: "Afstemning",
     result: "Resultat",
@@ -146,8 +149,9 @@
     if (data.phase !== phase) {
       var first = phase === null;
       phase = data.phase;
+      var view = viewOf(phase);
       document.querySelectorAll(".phase").forEach(function (node) {
-        node.hidden = node.dataset.phase !== phase;
+        node.hidden = node.dataset.phase !== view;
       });
       signatures = {};
       document.body.dataset.phase = phase;
@@ -156,7 +160,7 @@
       captionFor(phase, data, first);
       if (!first) {
         // Ny fase: flyt fokus til den, saa en skaermlaeser hoerer det.
-        var heading = document.querySelector('.phase[data-phase="' + phase + '"] h1');
+        var heading = document.querySelector('.phase[data-phase="' + view + '"] h1');
         if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
@@ -171,11 +175,14 @@
     if (phase === "lobby") renderLobby(data);
     if (phase === "spin") renderSpin(data);
     if (phase === "reveal") renderReveal(data);
-    if (phase === "make") renderMake(data);
+    if (phase === "make" || phase === "extra") renderMake(data);
     if (phase === "vote") renderVote(data);
     if (phase === "result") renderResult(data);
     tick();
   }
+
+  // Den ekstra tid er lav-skaermen med et andet ur.
+  function viewOf(p) { return p === "extra" ? "make" : p; }
 
   function changed(key, value) {
     var sig = JSON.stringify(value);
@@ -231,12 +238,35 @@
     });
 
     // Under og efter en runde kan man ikke forlade lobbyen.
-    $("leave-form").hidden = ["spin", "reveal", "make", "vote"].indexOf(data.phase) !== -1;
+    $("leave-form").hidden = ["spin", "reveal", "make", "extra", "vote"].indexOf(data.phase) !== -1;
   }
 
   /* ---------- 1. Lobby ---------- */
 
+  /* ---------- Stillingen i en serie af runder ---------- */
+
+  function renderSeries(node, series, heading) {
+    if (!node) return;
+    node.hidden = !series;
+    if (!series || !changed("series-" + node.id, series)) return;
+    node.textContent = "";
+    node.appendChild(el("p", "field__label", heading(series)));
+    var ol = el("ol", "series__list");
+    series.standings.forEach(function (row, i) {
+      var li = el("li", "series__row" + (row.me ? " is-me" : "") + (i === 0 && row.points ? " is-top" : ""));
+      li.appendChild(el("span", "series__name", row.name + (row.me ? " · dig" : "")));
+      var meta = plural(row.points, "point", "point");
+      if (row.wins) meta += " · " + plural(row.wins, "sejr", "sejre");
+      li.appendChild(el("span", "series__points", meta));
+      ol.appendChild(li);
+    });
+    node.appendChild(ol);
+  }
+
   function renderLobby(data) {
+    renderSeries($("lobby-series"), data.series, function (s) {
+      return "Runde " + s.round_no + " · stillingen efter " + plural(s.rounds, "runde", "runder");
+    });
     var problem = $("start-problem");
     if (problem) {
       problem.hidden = !data.start_problem;
@@ -825,8 +855,20 @@
     }
   }
 
+  function minutesText(seconds) {
+    return seconds % 60 ? plural(seconds, "sekund", "sekunder") : plural(seconds / 60, "minut", "minutter");
+  }
+
   function renderMake(data) {
     var round = data.round, make = data.make;
+    var finish = $("finish-make");
+    if (finish) {
+      var extra = data.phase === "extra";
+      $("finish-make-btn").textContent = extra ? "Luk afleveringen nu" : "Stop tiden nu";
+      finish.dataset.confirm = extra
+        ? "Luk afleveringen nu? Hold der ikke har afleveret, er ude af runden."
+        : "Stop tiden nu? Så starter de " + minutesText(round.extra) + " ekstra tid til at aflevere.";
+    }
     $("make-genre").textContent = round.genre;
     $("make-beat").textContent = round.beat;
     if (round.beat_url) {
@@ -1051,8 +1093,21 @@
     return wrap;
   }
 
+  var announcedNext = false;
+
   function renderResult(data) {
     var r = data.result, round = data.round;
+    renderSeries($("result-series"), data.series, function (s) {
+      return "Stillingen efter " + plural(s.rounds, "runde", "runder");
+    });
+    // Ejeren har startet en ny runde: knappen til den, til alle.
+    var link = $("next-round-link"), form = $("next-round-form");
+    link.hidden = !data.next;
+    if (form) form.hidden = !!data.next;
+    if (data.next) {
+      link.href = data.next.url;
+      if (!announcedNext) { announcedNext = true; say("næste runde er klar."); }
+    }
     $("result-beat").textContent = round.genre
       ? (round.solo ? "Din genre: " : "Jeres genre: ") + round.genre + " · " + round.beat : "";
     if (!changed("result", r)) return;
@@ -1117,6 +1172,8 @@
     if (p === "spin" && !first) say("hjulet bestemmer. alle får hver sin genre.");
     if (p === "reveal") say((data.round.solo ? "din" : "jeres") + " genre er … " + data.round.genre.toLowerCase() + ".");
     if (p === "make" && !first) say("tiden går. hent beatet.");
+    if (p === "extra") say("tiden er gået. " + (data.round.solo ? "du" : "i") + " har " +
+                           minutesText(data.round.extra) + " ekstra til at aflevere.");
     if (p === "vote") say(first ? "lyt med. giv flammer." : "tiden er gået. nu skal der stemmes.");
     if (p === "result") {
       var top = data.result.ranking[0];
@@ -1156,15 +1213,20 @@
     if (phase === "reveal") {
       $("reveal-left").textContent = Math.max(0, Math.ceil((state.round.make_at - t) / 1000)) + " s";
     }
-    if (phase === "make") {
-      var left = state.round.deadline - t;
+    if (phase === "make" || phase === "extra") {
+      var extra = phase === "extra";
+      var left = (extra ? state.round.closes : state.round.deadline) - t;
       var timer = $("timer");
       $("timer-text").textContent = clock(left);
+      timer.classList.toggle("is-extra", extra);
       timer.classList.toggle("is-hot", left <= 60000 && left > 10000);
       timer.classList.toggle("is-final", left <= 10000 && left > 0);
-      timer.classList.toggle("is-over", left <= 0);
-      $("timer-label").textContent = left > 0 ? "tilbage" : "tiden er gået";
-      var over = left <= 0;
+      timer.classList.toggle("is-over", extra && left <= 0);
+      $("timer-label").textContent = !extra ? "tilbage"
+        : left > 0 ? "ekstra tid til at aflevere" : "afleveringen er lukket";
+      // I lav-fasen gaar man bare videre i den ekstra tid ved nul. Foerst
+      // naar den er gaaet, lukkes der.
+      var over = extra && left <= 0;
       $("upload-btn").disabled = over;
       $("track-input").disabled = over;
       if (over) {
@@ -1173,13 +1235,21 @@
 
       // Skaermlaesere faar besked hvert minut og de sidste 30 og 10 sekunder.
       var secs = Math.ceil(left / 1000);
-      if (secs === 60 && !warned.minute) { warned.minute = true; say("ét minut tilbage."); }
-      if (secs === 10 && !warned.ten) { warned.ten = true; say("ti sekunder."); }
+      var key = extra ? "x" : "m";
+      if (secs === 60 && !warned[key + "minute"]) { warned[key + "minute"] = true; say(extra ? "ét minut til afleveringen lukker." : "ét minut tilbage."); }
+      if (secs === 10 && !warned[key + "ten"]) { warned[key + "ten"] = true; say("ti sekunder."); }
       if (secs > 0 && (secs % 60 === 0 || secs === 30 || secs === 10)) {
         announce(secs >= 60 ? plural(secs / 60, "minut", "minutter") + " tilbage" : secs + " sekunder tilbage");
       } else if (secs <= 0) {
-        announce("Tiden er gået.");
+        announce(extra ? "Afleveringen er lukket." : "Tiden er gået.");
       }
+    }
+    // Afstemningen lukker af sig selv.
+    if (phase === "vote" && state.vote && state.vote.deadline) {
+      var vleft = state.vote.deadline - t;
+      var vclock = $("vote-clock");
+      vclock.textContent = vleft > 0 ? "Afstemningen lukker om " + clock(vleft) : "Afstemningen lukker …";
+      vclock.classList.toggle("is-hot", vleft <= 60000);
     }
   }
 

@@ -42,6 +42,8 @@
       </div>
 
       <h1 class="stage__title" id="stage-title" data-wave>Venter på flere spillere<span class="dots" aria-hidden="true"></span></h1>
+      {# Runde 2 og frem: stillingen indtil nu. #}
+      <div class="series" id="lobby-series" hidden></div>
 
       {% if is_owner %}
         <form method="post" action="{{ url_for('start', code=lobby.code) }}" class="start">
@@ -173,10 +175,12 @@
       <p class="delivered" id="delivered"></p>
 
       {% if is_owner %}
+        {# Teksten skifter med fasen (lobby.js): "Stop tiden nu" starter den
+           ekstra tid, "Luk afleveringen nu" gaar til afstemningen. #}
         <form method="post" action="{{ url_for('finish_phase', code=lobby.code) }}" class="owner-act"
-              data-confirm="Luk afleveringen nu? Hold der ikke har afleveret, er ude af runden.">
+              id="finish-make" data-confirm="Stop tiden nu?">
           <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-          <button class="btn" type="submit">Luk afleveringen nu</button>
+          <button class="btn" type="submit" id="finish-make-btn">Stop tiden nu</button>
         </form>
       {% endif %}
     </div>
@@ -185,6 +189,7 @@
     <div class="phase" data-phase="vote" hidden>
       <h1 class="stage__title" data-wave>Afstemning</h1>
       <p class="progress-line" id="vote-progress"></p>
+      <p class="vote-clock" id="vote-clock" role="timer"></p>
       <ol class="tracks" id="vote-tracks"></ol>
 
       {% if is_owner %}
@@ -202,7 +207,17 @@
       <p class="muted" id="result-beat"></p>
       <ol class="ranking" id="ranking"></ol>
       <div class="missing" id="missing" hidden></div>
-      <a class="btn" href="{{ url_for('home') }}">Ny lobby</a>
+      <div class="series" id="result-series" hidden></div>
+      <div class="again">
+        {% if is_owner %}
+          <form method="post" action="{{ url_for('next_round', code=lobby.code) }}" id="next-round-form">
+            <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+            <button class="btn btn--go" type="submit">Ny runde med samme spillere</button>
+          </form>
+        {% endif %}
+        <a class="btn btn--go" id="next-round-link" href="#" hidden>Til næste runde</a>
+        <a class="btn" href="{{ url_for('home') }}">Ny lobby</a>
+      </div>
     </div>
 
     {# ---------- Udloebet ---------- #}
