@@ -1190,6 +1190,42 @@ body[data-phase="spin"]::after {
 .beats__info { display: grid; min-width: 0; }
 .beats__title { font-weight: 600; overflow-wrap: anywhere; }
 
+/* Beats fra YouTube */
+.yt__note { margin-top: var(--s2); font-size: var(--fs-small); }
+.yt__or {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin: var(--s5) 0 var(--s4);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.yt__or::before, .yt__or::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+.imports { margin-top: var(--s4); }
+.imports .field__label { display: block; margin-bottom: var(--s2); }
+.imports__list { display: grid; gap: var(--s2); }
+.imports__item {
+  display: grid;
+  gap: 2px;
+  padding: var(--s2) var(--s3);
+  background: var(--well);
+  border: 1px solid var(--line-dark);
+  border-left: 2px solid var(--line);
+  border-radius: var(--r-ctl);
+  font-size: var(--fs-small);
+}
+.imports__what { font-weight: 600; overflow-wrap: anywhere; }
+.imports__msg { color: var(--muted); }
+.imports__item.is-running { border-left-color: var(--accent); }
+.imports__item.is-running .imports__msg { color: var(--accent); }
+.imports__item.is-done { border-left-color: var(--good); }
+.imports__item.is-done .imports__msg { color: var(--good); }
+.imports__item.is-failed { border-left-color: var(--bad); }
+.imports__item.is-failed .imports__msg { color: var(--bad); }
+
 .notice-page { display: grid; justify-items: center; gap: var(--s3); margin-top: var(--s6); text-align: center; }
 .notice-page p { max-width: 46ch; }
 
@@ -1287,6 +1323,25 @@ body[data-phase="spin"]::after {
 .bld .win-top       { fill: #362a26; }
 .bld .win--lit      { fill: #e9c88f; animation: window 9s ease-in-out infinite; }
 .scene__town .bld--left, .scene__town .bld--right { opacity: 0.85; }
+/* Graffitien paa rullemuren: "EBVB" i boblebogstaver. Daempet, saa den
+   hoerer til den taagede by og ikke konkurrerer med indholdet. */
+.shutter__slat   { fill: #57524b; }
+.shutter__groove { fill: #3b3732; }
+.shutter__box    { fill: #3a3531; }
+.graffiti { opacity: 0.92; }
+.graffiti__haze { fill: rgba(244, 196, 58, 0.22); }
+.graffiti use, .graffiti path:not(.graffiti__star) {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.graffiti__depth   { stroke: #2a120c; stroke-width: 26; }
+.graffiti__outline { stroke: #0b0b0b; stroke-width: 26; }
+.graffiti__outline--drip { stroke-width: 13; }
+.graffiti__fill    { stroke: url(#graf-fill); stroke-width: 16; }
+.graffiti__fill--drip { stroke: #f0b42c; stroke-width: 6; }
+.graffiti__shine   { stroke: rgba(255, 252, 230, 0.75); stroke-width: 2.6; stroke-dasharray: 14 22; }
+.graffiti__star    { fill: #fff3b0; opacity: 0.85; }
 .lamp__post, .lamp__head { fill: #2d2724; }
 .lamp__bulb { fill: #fff0bd; }
 .lamp__glow { animation: breathe 5s ease-in-out infinite; }

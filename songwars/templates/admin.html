@@ -9,6 +9,10 @@
 </form>
 {% endblock %}
 
+{% block scripts %}
+<script src="{{ asset('admin.js') }}" defer></script>
+{% endblock %}
+
 {% block body %}
 <h1 class="page-title" data-wave>Beats og genrer</h1>
 <p class="muted">
@@ -59,6 +63,43 @@
   <section class="card" aria-labelledby="beat-up-title">
     <h2 class="card__title" id="beat-up-title">Læg et beat op</h2>
     {% if genres %}
+      {# Fra YouTube: serveren henter lyden selv (yt-dlp + ffmpeg) i baggrunden. #}
+      <form method="post" action="{{ url_for('admin_youtube') }}" class="yt" data-busy="Starter hentningen …">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <label class="field">
+          <span class="field__label">Link til YouTube</span>
+          <input class="input" type="url" name="url" inputmode="url" autocomplete="off" required>
+        </label>
+        <label class="field">
+          <span class="field__label">Titel</span>
+          <input class="input" name="title" maxlength="80" aria-describedby="yt-title-note">
+          <span class="muted" id="yt-title-note">Tom: navnet fra videoens titel, uden "(FREE)" og "Type Beat".</span>
+        </label>
+        <label class="field">
+          <span class="field__label">Genre</span>
+          <select class="input" name="genre" required>
+            {% for g in genres %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+          </select>
+        </label>
+        <button class="btn btn--go" type="submit">Hent fra YouTube</button>
+        <p class="muted yt__note">Kun én video ad gangen, højst {{ yt_minutes }} min. Den gemmes som mp3.</p>
+      </form>
+
+      <div class="imports" id="imports" data-url="{{ url_for('admin_imports') }}"
+           {% if not imports %}hidden{% endif %}>
+        <p class="field__label">Hentninger</p>
+        <ul class="imports__list" id="imports-list" aria-live="polite">
+          {% for i in imports %}
+            <li class="imports__item is-{{ i.status }}" data-id="{{ i.id }}" data-status="{{ i.status }}">
+              <span class="imports__what">{{ i.title or i.url }}{% if i.genre %} · {{ i.genre }}{% endif %}</span>
+              <span class="imports__msg">{{ 'Henter …' if i.status == 'running' else i.message }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <p class="yt__or"><span>eller upload en fil</span></p>
+
       <form method="post" action="{{ url_for('admin_beat_create') }}" enctype="multipart/form-data"
             data-busy="Sender beatet …">
         <input type="hidden" name="csrf" value="{{ csrf_token() }}">
@@ -93,7 +134,7 @@
         <li class="beats__item">
           <div class="beats__info">
             <span class="beats__title">{{ b.title }}</span>
-            <span class="rows__meta">{{ b.genre }} · {{ clock(b.seconds) }} · {{ b.kind }} · {{ '%.1f' | format(b.size / 1048576) | replace('.', ',') }} MB</span>
+            <span class="rows__meta">{{ b.genre }} · {{ clock(b.seconds) }} · {{ b.kind }} · {{ '%.1f' | format(b.size / 1048576) | replace('.', ',') }} MB{% if b.source and b.source.startswith('youtube:') %} · <a href="https://www.youtube.com/watch?v={{ b.source[8:] }}" rel="noopener noreferrer" target="_blank">YouTube</a>{% endif %}</span>
           </div>
           <audio class="player" controls preload="none" src="{{ url_for('admin_beat_audio', bid=b.id) }}"></audio>
           <form method="post" action="{{ url_for('admin_beat_delete', bid=b.id) }}"

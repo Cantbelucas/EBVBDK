@@ -1,2 +1,7 @@
 Flask==3.1.3
 gunicorn==23.0.0
+# Ikke laast fast med vilje: YouTube aendrer sig hele tiden, og en gammel
+# yt-dlp holder op med at virke. Et nyt build henter den nyeste
+# (docker compose build --pull). [default] tager yt-dlp-ejs med, som
+# deno bruger til YouTubes JavaScript.
+yt-dlp[default]

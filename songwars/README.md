@@ -11,6 +11,7 @@ ind, og kun for at styre genrer og beats.
 ```
 app.py                      hele backenden (Flask + SQLite)
 audio.py                    er filen faktisk mp3 eller wav? + længden
+youtube.py                  hent et beat fra et YouTube-link (yt-dlp + ffmpeg + deno)
 templates/
   base.html                 ramme, CSRF-token som <meta>
   home.html                 opret / join
@@ -21,6 +22,7 @@ static/
   styles.css                al styling - designsystemet staar som variabler oeverst
   common.js                 data-confirm, data-busy, kopiér-knap, baggrundsscenen
   lobby.js                  polling af /state, nedtælling, upload, afstemning
+  admin.js                  status på hentninger fra YouTube
   flame.svg                 flammen - bruges som CSS-maske (wordmark, stemmer)
   fonts/                    Poppins (titler) og Inter (tekst) som woff2, selvhostet (OFL)
 Dockerfile, docker-compose.yml, .env.example
@@ -110,12 +112,43 @@ Alt kommer fra miljøet (`.env`). Ingen hemmeligheder i koden.
 | `SONGWARS_MAX_BEAT_MB` | `95` | Pr. beat (kun admin). Under Cloudflares 100 MB. |
 | `SONGWARS_LOBBY_HOURS` | `24` | Derefter lukker lobbyen. |
 | `SONGWARS_KEEP_DAYS` | `7` | Derefter slettes alt om lobbyen. |
+| `SONGWARS_YT_MAX_MINUTES` | `15` | Beats fra YouTube må højst være så lange. |
 | `SONGWARS_SPIN_SECONDS` | `20` | Hvor længe et hold har til at dreje hjulet, før serveren gør det. |
 | `SONGWARS_REVEAL_SECONDS` | `10` | Hvor længe genren vises før tiden starter. |
 | `SONGWARS_GRACE_SECONDS` | `10` | Se ovenfor. |
 
 Mangler en af de to påkrævede, eller er de for korte, nægter appen at
 starte og siger hvorfor.
+
+## Beats fra YouTube
+
+På `/admin` kan man sætte et link ind, skrive en titel og vælge genre, så
+henter serveren selv lyden — samme opskrift som "YouTube → WAV"-scriptet:
+yt-dlp henter kun den ene video (`--no-playlist`), ffmpeg laver lyden om,
+og deno er den JavaScript-motor, yt-dlp skal bruge til YouTube.
+
+- **mp3, ikke wav.** Lyden på YouTube er allerede komprimeret, så en wav
+  bliver ikke bedre — bare fire gange større at hente for spillerne.
+  Den gemmes som mp3 i bedste kvalitet (VBR 0).
+- **Tom titel** = navnet fra videoens titel, uden "(FREE)", "[free for
+  profit]", "Type Beat", årstal og lignende. Står navnet i anførselstegn
+  (`"Global"`), bruges det.
+- **I baggrunden.** En hentning tager typisk 10–30 sekunder, og nginx og
+  Cloudflare afbryder lange forespørgsler. Derfor starter formularen bare
+  en hentning (tabellen `imports`) og kommer tilbage med det samme; siden
+  viser status og genindlæser sig selv, når beatet er klar. Højst to ad
+  gangen. En hentning der har "kørt" i et kvarter, er død (serveren blev
+  genstartet) og vises som afbrudt.
+- **Kun YouTube.** Linket laves om til `youtube.com/watch?v=<id>`, og
+  yt-dlp må kun bruge sin YouTube-del (`allowed_extractors`), så feltet kan
+  ikke bruges til at få serveren til at hente fra andre adresser.
+  Playlister afvises.
+- **Samme video to gange** afvises: beatet husker sin kilde
+  (`beats.source = youtube:<id>`).
+- **Filen tjekkes** af `audio.py` som enhver anden upload, før den lægges
+  på plads.
+- **Hvis YouTube siger nej** ("bot-tjek", 403): se DEPLOY.md. Upload med
+  fil virker altid som før.
 
 ## Sikkerhed
 

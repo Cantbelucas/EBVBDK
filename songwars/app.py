@@ -34,6 +34,7 @@ import secrets
 import shutil
 import sqlite3
 import sys
+import threading
 import time
 import unicodedata
 from functools import wraps
@@ -48,6 +49,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import audio
+import youtube
 
 # --------------------------------------------------------------------
 # Konfiguration. Alt kommer fra miljoeet (.env via docker compose).
@@ -89,6 +91,7 @@ DB_PATH = DATA / "songwars.db"
 BEATS = DATA / "beats"
 SUBS = DATA / "submissions"
 TMP = DATA / "tmp"
+CACHE = DATA / "cache"          # deno og yt-dlp (DENO_DIR, XDG_CACHE_HOME i Dockerfile)
 
 SECRET_KEY = os.environ.get("SONGWARS_SECRET_KEY", "")
 ADMIN_PASSWORD = os.environ.get("SONGWARS_ADMIN_PASSWORD", "")
@@ -106,6 +109,10 @@ GRACE_SECONDS = env_int("SONGWARS_GRACE_SECONDS", 10, 0, 120)
 # Saa laenge har et hold til at dreje hjulet. Bagefter drejer serveren det
 # for dem, saa en der er gaaet fra skaermen ikke holder runden op.
 SPIN_SECONDS = env_int("SONGWARS_SPIN_SECONDS", 20, 5, 120)
+# Beats fra YouTube: hoejst saa lange, og hoejst saa mange ad gangen.
+YT_MAX_SECONDS = env_int("SONGWARS_YT_MAX_MINUTES", 15, 1, 60) * 60
+YT_PARALLEL = 2
+YT_STALE_SECONDS = 15 * 60      # en hentning der "koerer" saa laenge, er doed
 SPIN_MS = 5800             # hjulet drejer saa laenge i klienten
 SPIN_REST = 2.2            # ... og staar stille saa laenge, foer naeste tur
 SPIN_INTRO = 3             # raekkefoelgen vises, foer den foerste tur
@@ -153,7 +160,7 @@ def check_config():
     if problems:
         sys.exit("Songwars kan ikke starte:\n  - " + "\n  - ".join(problems))
 
-    for folder in (DATA, BEATS, SUBS, TMP):
+    for folder in (DATA, BEATS, SUBS, TMP, CACHE):
         try:
             folder.mkdir(parents=True, exist_ok=True)
             probe = folder / ".skrivbar"
@@ -264,6 +271,20 @@ CREATE TABLE IF NOT EXISTS votes (
     PRIMARY KEY (submission_id, player_id)
 );
 
+-- Beats der hentes fra YouTube. Hentningen koerer i baggrunden; admin-
+-- siden viser status herfra.
+CREATE TABLE IF NOT EXISTS imports (
+    id          INTEGER PRIMARY KEY,
+    video       TEXT NOT NULL,
+    title       TEXT NOT NULL DEFAULT '',
+    genre_id    INTEGER NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'running',   -- running, done, failed
+    message     TEXT NOT NULL DEFAULT '',
+    beat_id     TEXT,
+    created_at  REAL NOT NULL,
+    updated_at  REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS hits (
     key   TEXT NOT NULL,
     at    REAL NOT NULL
@@ -306,6 +327,7 @@ def close_db(_exc):
 # EXISTS roerer ikke en tabel der findes, saa de tilfoejes her.
 COLUMNS = {
     "lobbies": [("turn_at", "REAL")],
+    "beats": [("source", "TEXT")],              # youtube:<id>, saa samme video ikke kommer to gange
     "teams": [
         ("spin_order", "INTEGER"),
         ("genre_id", "INTEGER"),
@@ -447,7 +469,7 @@ def headers(resp):
     resp.headers.setdefault("Referrer-Policy", "same-origin")
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    if request.endpoint in ("lobby_state",) or resp.mimetype == "text/html":
+    if request.endpoint in ("lobby_state", "admin_imports") or resp.mimetype == "text/html":
         resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -1436,7 +1458,8 @@ def admin():
         "subs": conn.execute("SELECT COUNT(*), COALESCE(SUM(size), 0) FROM submissions").fetchone(),
     }
     return render_template("admin.html", genres=genres, beats=beats, stats=stats,
-                           max_beat=MAX_BEAT, keep_days=KEEP_SECONDS // 86400)
+                           max_beat=MAX_BEAT, keep_days=KEEP_SECONDS // 86400,
+                           imports=recent_imports(conn), yt_minutes=YT_MAX_SECONDS // 60)
 
 
 @app.post("/admin/login")
@@ -1531,6 +1554,127 @@ def admin_beat_create():
     db().commit()
     flash("{0} er lagt op ({1}).".format(title, clock(seconds)))
     return redirect(url_for("admin"))
+
+
+# --------------------------------------------------------------------
+# Admin: beats fra YouTube
+# --------------------------------------------------------------------
+
+def spawn(fn, *args):
+    """Koer i baggrunden. Testene skifter den ud, saa det sker med det samme."""
+    threading.Thread(target=fn, args=args, daemon=True).start()
+
+
+def run_import(import_id):
+    """Hent, tjek og gem et beat fra YouTube. Koerer i sin egen traad med
+    sin egen forbindelse til databasen - ikke i en forespoergsel."""
+    conn = connect()
+    try:
+        job = conn.execute("SELECT * FROM imports WHERE id = ?", (import_id,)).fetchone()
+        if job is None:
+            return
+        try:
+            path, yt_title = youtube.fetch(job["video"], TMP, MAX_BEAT, YT_MAX_SECONDS)
+        except youtube.FetchError as exc:
+            finish_import(conn, import_id, "failed", str(exc))
+            return
+        try:
+            if path.stat().st_size > MAX_BEAT:
+                raise audio.NotAudio("Filen er over {0} MB.".format(MAX_BEAT // (1024 * 1024)))
+            kind, _mime, seconds = audio.inspect(path)
+        except (audio.NotAudio, OSError) as exc:
+            remove_file(path)
+            finish_import(conn, import_id, "failed", "Filen fra YouTube kunne ikke bruges: {0}".format(exc))
+            return
+        title = job["title"] or clean_text(youtube.clean_title(yt_title), TITLE_MAX)
+        bid = secrets.token_hex(16)
+        size = path.stat().st_size
+        os.replace(path, BEATS / (bid + "." + kind))
+        if not conn.execute("SELECT 1 FROM genres WHERE id = ?", (job["genre_id"],)).fetchone():
+            remove_file(BEATS / (bid + "." + kind))
+            finish_import(conn, import_id, "failed", "Genren er slettet, mens beatet blev hentet.")
+            return
+        conn.execute(
+            "INSERT INTO beats (id, genre_id, title, file, kind, size, seconds, created_at, source)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            (bid, job["genre_id"], title, bid + "." + kind, kind, size, seconds, now(),
+             "youtube:" + job["video"]))
+        conn.execute("UPDATE imports SET status = 'done', message = ?, beat_id = ?, title = ?,"
+                     " updated_at = ? WHERE id = ?",
+                     ("{0} er lagt op ({1}).".format(title, clock(seconds)), bid, title, now(), import_id))
+        conn.commit()
+    except Exception:                                  # aldrig en hentning der haenger i "koerer"
+        app.logger.exception("YouTube-hentning %s fejlede", import_id)
+        try:
+            finish_import(conn, import_id, "failed", "Noget gik galt på serveren. Se loggen.")
+        except sqlite3.Error:
+            pass
+    finally:
+        conn.close()
+
+
+def finish_import(conn, import_id, status, message):
+    conn.execute("UPDATE imports SET status = ?, message = ?, updated_at = ? WHERE id = ?",
+                 (status, message, now(), import_id))
+    conn.commit()
+
+
+def recent_imports(conn):
+    """Hentninger fra den sidste time - og dem der stadig koerer. En der har
+    "koert" i et kvarter, er doed (serveren er genstartet midt i)."""
+    t = now()
+    conn.execute("UPDATE imports SET status = 'failed', message = ?, updated_at = ?"
+                 " WHERE status = 'running' AND created_at < ?",
+                 ("Hentningen blev afbrudt — serveren blev nok genstartet. Prøv igen.", t,
+                  t - YT_STALE_SECONDS))
+    conn.commit()
+    rows = conn.execute(
+        "SELECT i.*, g.name AS genre FROM imports i LEFT JOIN genres g ON g.id = i.genre_id"
+        " WHERE i.status = 'running' OR i.updated_at > ? ORDER BY i.created_at DESC, i.id DESC LIMIT 12",
+        (t - 3600,)).fetchall()
+    return [{"id": r["id"], "status": r["status"], "message": r["message"],
+             "title": r["title"], "genre": r["genre"] or "",
+             "url": youtube.watch_url(r["video"])} for r in rows]
+
+
+@app.post("/admin/youtube")
+@admin_required
+def admin_youtube():
+    back = url_for("admin")
+    vid = youtube.video_id(request.form.get("url"))
+    title = clean_text(request.form.get("title"), TITLE_MAX)
+    try:
+        gid = int(request.form.get("genre", ""))
+    except ValueError:
+        gid = None
+    if vid is None:
+        return fail(400, "Det er ikke et link til en YouTube-video. Brug linket fra adresselinjen "
+                         "eller Del-knappen.", back)
+    conn = db()
+    if gid is None or not conn.execute("SELECT 1 FROM genres WHERE id = ?", (gid,)).fetchone():
+        return fail(400, "Vælg en genre.", back)
+    have = conn.execute("SELECT title FROM beats WHERE source = ?", ("youtube:" + vid,)).fetchone()
+    if have:
+        return fail(409, "Den video er lagt op før — som {0}.".format(have["title"]), back)
+    recent_imports(conn)                               # rydder doede hentninger op foerst
+    if conn.execute("SELECT 1 FROM imports WHERE video = ? AND status = 'running'", (vid,)).fetchone():
+        return fail(409, "Den video bliver hentet lige nu.", back)
+    if conn.execute("SELECT COUNT(*) FROM imports WHERE status = 'running'").fetchone()[0] >= YT_PARALLEL:
+        return fail(429, "Der hentes allerede {0} beats. Vent til de er færdige.".format(YT_PARALLEL), back)
+    t = now()
+    import_id = conn.execute(
+        "INSERT INTO imports (video, title, genre_id, created_at, updated_at) VALUES (?,?,?,?,?)",
+        (vid, title, gid, t, t)).lastrowid
+    conn.commit()
+    spawn(run_import, import_id)
+    flash("Henter beatet fra YouTube … Det tager typisk 10–30 sekunder.")
+    return redirect(back)
+
+
+@app.get("/admin/hentninger")
+@admin_required
+def admin_imports():
+    return jsonify({"imports": recent_imports(db())})
 
 
 @app.post("/admin/beat/<bid>/slet")

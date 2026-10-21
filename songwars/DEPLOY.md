@@ -223,6 +223,27 @@ ssh lucas@dinserver "rm ~/stack/nginx/conf.d/songwars.conf && docker exec nginx 
 Det tager siden ned og stopper containeren. `data/` bliver liggende, til
 du selv sletter den. EBVB mærker ingenting af nogen af delene.
 
+## Beats fra YouTube
+
+Imaget har yt-dlp, ffmpeg og deno med, så admin kan hente beats fra et
+YouTube-link. Det gør imaget ca. 250 MB større. Der skal ikke sættes noget
+op; deno og yt-dlp gemmer deres cache i `data/cache/`.
+
+**YouTube ændrer sig hele tiden**, og en gammel yt-dlp holder op med at
+virke — typisk med "HTTP Error 403". yt-dlp er derfor ikke låst fast i
+`requirements.txt`, og et nyt build henter den nyeste:
+
+```bash
+ssh lucas@dinserver "cd /opt/songwars && docker compose build --pull --no-cache && docker compose up -d"
+```
+
+Det svarer til `Opdater-vaerktoejer.bat` i "YouTube → WAV"-mappen.
+
+**"YouTube afviste serveren (bot-tjek)"** betyder at YouTube ikke vil
+lade serverens IP hente — det sker oftere fra datacentre end hjemmefra.
+Det kan et nyt build ikke løse. Hent beatet med dit eget værktøj og læg
+filen op i stedet; det virker som før.
+
 ## Ressourcer
 
 Containeren har `mem_limit: 512m`. To gunicorn-workers bruger i størrelsesordenen

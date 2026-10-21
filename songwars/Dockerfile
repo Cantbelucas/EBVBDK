@@ -1,16 +1,27 @@
+# deno er den JavaScript-motor yt-dlp skal bruge for at hente fra YouTube.
+FROM denoland/deno:bin-2.1.4 AS deno
+
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     SONGWARS_DATA=/data \
-    TMPDIR=/data/tmp
+    TMPDIR=/data/tmp \
+    DENO_DIR=/data/cache/deno \
+    XDG_CACHE_HOME=/data/cache
 
 WORKDIR /app
+
+# ffmpeg laver lyden fra YouTube om til mp3.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=deno /deno /usr/local/bin/deno
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py audio.py ./
+COPY app.py audio.py youtube.py ./
 COPY templates/ templates/
 COPY static/ static/
 
