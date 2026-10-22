@@ -312,6 +312,176 @@
     });
   }, true);
 
+  /* ---------- Afspilleren ----------
+     I stedet for browserens egen afspiller (den kan ikke styles, og den
+     ser forskellig ud i hver browser): en rund afspil-knap, hvis ring
+     lyser gult mens der spilles, en tyk gul fremdriftslinje med en knop -
+     klik, traek eller piletaster for at spole - og titel til venstre, tid
+     til hoejre. Ingen volumen (brug telefonens knapper) og ingen menu (den
+     tilboed "Hent", ogsaa under en anonym afstemning).
+
+     <audio> bliver liggende og spiller lyden; den er bare skjult.
+     locked: under "lyt sammen" styrer serveren, hvor nummeret er - saa kan
+     man ikke spole, og knappen slaar kun lyden til og fra her. */
+
+  function fmt(seconds) {
+    if (!isFinite(seconds) || seconds < 0) seconds = 0;
+    var s = Math.floor(seconds), m = Math.floor(s / 60);
+    return m + ":" + (s % 60 < 10 ? "0" : "") + (s % 60);
+  }
+
+  function player(audio, opts) {
+    opts = opts || {};
+    if (audio._sp) {
+      if (opts.label) audio._sp.setLabel(opts.label);
+      if (opts.seconds) audio._sp.setSeconds(opts.seconds);
+      return audio._sp;
+    }
+    var label = opts.label || audio.dataset.label || "Lyd";
+    var fallback = opts.seconds || parseFloat(audio.dataset.seconds) || 0;
+    var locked = false, onToggle = null;
+
+    audio.controls = false;
+    audio.removeAttribute("controls");
+    audio.classList.add("sp__audio");
+
+    var box = document.createElement("div");
+    box.className = "sp";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sp__play";
+    var icon = document.createElement("span");
+    icon.className = "sp__icon";
+    icon.setAttribute("aria-hidden", "true");
+    btn.appendChild(icon);
+
+    var main = document.createElement("div");
+    main.className = "sp__main";
+    var head = document.createElement("div");
+    head.className = "sp__head";
+    var title = document.createElement("span");
+    title.className = "sp__title";
+    var time = document.createElement("span");
+    time.className = "sp__time";
+    head.appendChild(title);
+    head.appendChild(time);
+
+    var bar = document.createElement("div");
+    bar.className = "sp__bar";
+    bar.tabIndex = 0;
+    bar.setAttribute("role", "slider");
+    bar.setAttribute("aria-valuemin", "0");
+    var fill = document.createElement("span");
+    fill.className = "sp__fill";
+    var knob = document.createElement("span");
+    knob.className = "sp__knob";
+    bar.appendChild(fill);
+    bar.appendChild(knob);
+    main.appendChild(head);
+    main.appendChild(bar);
+    box.appendChild(btn);
+    box.appendChild(main);
+    audio.parentNode.insertBefore(box, audio);
+    box.appendChild(audio);
+
+    function duration() {
+      return isFinite(audio.duration) && audio.duration > 0 ? audio.duration : fallback;
+    }
+
+    function paint() {
+      var d = duration(), at = Math.min(audio.currentTime || 0, d || 0);
+      var pct = d ? (at / d) * 100 : 0;
+      fill.style.setProperty("--pct", pct.toFixed(2) + "%");
+      knob.style.setProperty("--pct", pct.toFixed(2) + "%");
+      time.textContent = fmt(at) + " / " + fmt(d);
+      bar.setAttribute("aria-valuemax", String(Math.round(d)));
+      bar.setAttribute("aria-valuenow", String(Math.round(at)));
+      bar.setAttribute("aria-valuetext", fmt(at) + " af " + fmt(d));
+      var playing = !audio.paused && !audio.ended;
+      box.classList.toggle("is-playing", playing);
+      btn.setAttribute("aria-label", (playing ? "Pause " : "Afspil ") + label);
+      btn.setAttribute("aria-pressed", playing ? "true" : "false");
+    }
+
+    function setLabel(text) {
+      label = text;
+      title.textContent = text;
+      bar.setAttribute("aria-label", "Spol i " + text);
+      paint();
+    }
+
+    ["play", "pause", "ended", "timeupdate", "loadedmetadata", "durationchange", "seeked", "emptied"]
+      .forEach(function (ev) { audio.addEventListener(ev, paint); });
+
+    btn.addEventListener("click", function () {
+      if (locked) { if (onToggle) onToggle(); return; }
+      if (audio.paused) { var p = audio.play(); if (p && p.catch) p.catch(function () {}); }
+      else audio.pause();
+    });
+
+    function seekTo(seconds) {
+      if (locked) return;
+      var d = duration();
+      if (!d) return;
+      var target = Math.max(0, Math.min(d, seconds));
+      if (audio.readyState === 0) {
+        // Ikke hentet endnu (preload="none"): hent, og spol naar den kender laengden.
+        audio.addEventListener("loadedmetadata", function once() {
+          audio.removeEventListener("loadedmetadata", once);
+          audio.currentTime = target;
+        });
+        audio.load();
+      } else {
+        audio.currentTime = target;
+      }
+      paint();
+    }
+
+    function fromPointer(e) {
+      var r = bar.getBoundingClientRect();
+      return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * duration();
+    }
+    var dragging = false;
+    bar.addEventListener("pointerdown", function (e) {
+      if (locked) return;
+      dragging = true;
+      bar.setPointerCapture(e.pointerId);
+      box.classList.add("is-seeking");
+      seekTo(fromPointer(e));
+    });
+    bar.addEventListener("pointermove", function (e) { if (dragging) seekTo(fromPointer(e)); });
+    function endDrag() { dragging = false; box.classList.remove("is-seeking"); }
+    bar.addEventListener("pointerup", endDrag);
+    bar.addEventListener("pointercancel", endDrag);
+    bar.addEventListener("keydown", function (e) {
+      var step = { ArrowRight: 5, ArrowUp: 5, ArrowLeft: -5, ArrowDown: -5, PageUp: 15, PageDown: -15 }[e.key];
+      if (step !== undefined) { e.preventDefault(); seekTo((audio.currentTime || 0) + step); }
+      else if (e.key === "Home") { e.preventDefault(); seekTo(0); }
+      else if (e.key === "End") { e.preventDefault(); seekTo(duration()); }
+    });
+
+    var api = {
+      el: box,
+      audio: audio,
+      setLabel: setLabel,
+      setSeconds: function (s) { fallback = s || fallback; paint(); },
+      // Under lyt sammen: ingen spoling; knappen slaar lyden til og fra her.
+      setLocked: function (on, toggle) {
+        locked = !!on;
+        onToggle = toggle || null;
+        box.classList.toggle("is-locked", locked);
+        bar.setAttribute("aria-disabled", locked ? "true" : "false");
+        bar.tabIndex = locked ? -1 : 0;
+      },
+      paint: paint
+    };
+    audio._sp = api;
+    setLabel(label);
+    return api;
+  }
+
+  document.querySelectorAll("audio.player").forEach(function (a) { player(a); });
+
   /* ---------- Undertekster ---------- */
 
   /* Den gule tekst skrives ud tegn for tegn. Det er ikke den slags
@@ -436,6 +606,7 @@
 
   window.SW = { say: say, type: type, wave: wave, waveText: waveText, sound: sound, buzz: buzz,
                 still: still, prefs: function () { return prefs; }, setPref: setPref,
+                player: player,
                 onPrefs: function (fn) { prefListeners.push(fn); } };
 
   document.querySelectorAll("[data-wave]").forEach(function (node) {

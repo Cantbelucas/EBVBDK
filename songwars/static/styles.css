@@ -975,6 +975,120 @@ body[data-phase="spin"]::after {
 
 .player { width: 100%; height: 40px; color-scheme: dark; }
 
+/* ---------- Afspilleren (common.js) ----------
+   En rund afspil-knap, hvis ring lyser gult, mens der spilles; en tyk gul
+   fremdriftslinje med en knop; titel til venstre og tid til hoejre. Kun
+   den gule accent - resten er sidens moerke flader. */
+.sp__audio { display: none; }
+.sp {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  min-width: 0;
+}
+.sp__play {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.75);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #4a4741, #1d1c1b 70%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 0 0 1px var(--line);
+  color: var(--text);
+  cursor: pointer;
+  transition: box-shadow var(--t) var(--ease), color var(--t) var(--ease);
+}
+.sp__play:hover { color: var(--accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 0 1px rgba(244, 212, 58, 0.55); }
+/* Afspil: en trekant. Pause: to streger. Begge tegnet med CSS. */
+.sp__icon {
+  width: 0;
+  height: 0;
+  margin-left: 3px;
+  border-style: solid;
+  border-width: 7px 0 7px 12px;
+  border-color: transparent transparent transparent currentColor;
+}
+.sp.is-playing .sp__icon {
+  width: 12px;
+  height: 14px;
+  margin-left: 0;
+  border: 0;
+  border-left: 4px solid currentColor;
+  border-right: 4px solid currentColor;
+}
+/* Ringen lyser, mens der spilles. */
+.sp.is-playing .sp__play {
+  color: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 0 2px var(--accent), 0 0 16px rgba(244, 212, 58, 0.45);
+}
+.sp__main { display: grid; gap: 6px; flex: 1; min-width: 0; }
+.sp__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+.sp__title { font-weight: 600; font-size: var(--fs-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp__time { flex: none; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sp__bar {
+  position: relative;
+  height: 8px;
+  border: 1px solid var(--line-dark);
+  border-bottom-color: var(--line-soft);
+  border-radius: 4px;
+  background: var(--well);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  touch-action: none;
+}
+.sp__bar::before {                              /* et stoerre omraade at ramme paa en telefon */
+  content: "";
+  position: absolute;
+  inset: -10px 0;
+}
+.sp__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--pct, 0%);
+  border-radius: 4px;
+  background: linear-gradient(180deg, #fbe788 0%, #f4d43a 50%, #e1bd20 51%, #caa616 100%);
+  box-shadow: 0 0 8px rgba(244, 212, 58, 0.35);
+}
+.sp__knob {
+  position: absolute;
+  top: 50%;
+  left: var(--pct, 0%);
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.7);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff8d2, #e1bd20);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  transform: translate(-50%, -50%) scale(0.85);
+  transition: transform var(--t) var(--ease);
+}
+.sp__bar:hover .sp__knob, .sp__bar:focus-visible .sp__knob, .sp.is-seeking .sp__knob { transform: translate(-50%, -50%) scale(1.15); }
+.sp__bar:focus-visible { outline: 1px solid var(--accent); outline-offset: 4px; box-shadow: none; }
+/* Under lyt sammen styrer serveren - ingen spoling. */
+.sp.is-locked .sp__bar { cursor: default; }
+.sp.is-locked .sp__knob { display: none; }
+
+/* ---------- Lyt sammen ---------- */
+.listen {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  margin-bottom: var(--s4);
+  background: linear-gradient(90deg, rgba(244, 212, 58, 0.1), rgba(244, 212, 58, 0.02) 70%), var(--well);
+  border: 1px solid rgba(244, 212, 58, 0.45);
+  border-radius: var(--r-ctl);
+}
+.listen__now { font-weight: 600; font-size: 18px; font-variant-numeric: tabular-nums; }
+.listen__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.listen__skips { font-size: var(--fs-small); color: var(--muted); }
+.track.is-waiting { opacity: 0.55; }
+.track.is-waiting .rate__btn { cursor: not-allowed; }
+
 .upload { display: grid; gap: var(--s3); margin-top: var(--s5); }
 .drop {
   position: relative;

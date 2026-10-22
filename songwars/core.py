@@ -77,10 +77,13 @@ GRACE_SECONDS = env_int("SONGWARS_GRACE_SECONDS", 10, 0, 120)
 # Naar tiden er gaaet, er der ekstra tid til at aflevere - synlig, med sit
 # eget ur. Har alle hold afleveret, springes den over.
 EXTRA_SECONDS = env_int("SONGWARS_EXTRA_SECONDS", 120, 0, 600)
-# Afstemningen lukker af sig selv: saa mange minutter pr. nummer, mindst fem.
-# Ellers kan en spiller der er gaaet hjem uden at stemme, holde alle hen.
-VOTE_SECONDS_PER_TRACK = env_int("SONGWARS_VOTE_MINUTES_PER_TRACK", 2, 1, 15) * 60
-VOTE_MIN_SECONDS = 5 * 60
+# Afstemningen: numrene spilles for alle paa samme tid, et ad gangen ("lyt
+# sammen"). Naar det sidste er spillet, er der saa lang tid til de sidste
+# flammer - saa lukker den af sig selv, ogsaa hvis en er gaaet hjem.
+VOTE_AFTER_SECONDS = env_int("SONGWARS_VOTE_AFTER_SECONDS", 120, 15, 900)
+LISTEN_INTRO = 3           # foer det foerste nummer
+LISTEN_GAP = 2             # mellem numrene
+LISTEN_MAX = 10 * 60       # et nummer spilles hoejst saa laenge for alle
 # Point i en serie af runder med de samme spillere: plads -> point.
 PLACE_POINTS = {1: 3, 2: 2, 3: 1}
 # Saa laenge har et hold til at dreje hjulet. Bagefter drejer serveren det

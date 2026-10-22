@@ -50,9 +50,9 @@ from core import (
 )
 from database import connect, db, init_db, limited
 from game import (
-    VIEWER, advance, begin_round, closes_at, genres_with_beats, new_code,
-    open_voting, phase_of, spin, start_problem, state_for, team_genre,
-    team_on_turn,
+    VIEWER, advance, begin_round, closes_at, genres_with_beats, listen_step,
+    new_code, open_voting, phase_of, skips_needed, spin, start_problem,
+    state_for, team_genre, team_on_turn,
 )
 from admin import bp as admin_bp, is_admin
 
@@ -823,10 +823,12 @@ def vote(code):
     if not isinstance(flames, int) or isinstance(flames, bool) or not 1 <= flames <= 5:
         return json_error(400, "Giv mellem 1 og 5 flammer.")
     conn = db()
-    sub = conn.execute("SELECT team_id FROM submissions WHERE id = ? AND lobby_id = ?",
+    sub = conn.execute("SELECT team_id, position FROM submissions WHERE id = ? AND lobby_id = ?",
                        (sid, lobby["id"])).fetchone()
     if sub is None:
         return json_error(404, "Nummeret findes ikke.")
+    if lobby["listen_idx"] is not None and (sub["position"] or 0) > lobby["listen_idx"]:
+        return json_error(409, "Nummeret er ikke spillet endnu. Hør det først.")
     if me["team_id"] is None:
         return json_error(403, "Du var ikke med i runden.")
     if sub["team_id"] == me["team_id"]:
@@ -838,6 +840,36 @@ def vote(code):
     conn.commit()
     advance(lobby)                                    # den sidste stemme afslutter runden
     return jsonify({"ok": True})
+
+
+@app.post("/l/<code>/spring-over")
+def skip_track(code):
+    """"Spring over" under lyt sammen. Vil halvdelen af spillerne det,
+    starter det naeste nummer med det samme - for alle."""
+    lobby = lobby_or_404(code)
+    me = member_or_403(lobby)
+    if limited("vote", me["id"]):
+        return too_many()
+    if lobby["status"] != "voting" or lobby["listen_idx"] is None:
+        return json_error(409, "Der spiller ikke noget lige nu.")
+    if me["team_id"] is None:
+        return json_error(403, "Du var ikke med i runden.")
+    data = request.get_json(silent=True) or {}
+    if data.get("position") != lobby["listen_idx"]:
+        return json_error(409, "Det nummer er allerede forbi.")
+    conn = db()
+    conn.execute("INSERT OR IGNORE INTO skips (lobby_id, position, player_id) VALUES (?,?,?)",
+                 (lobby["id"], lobby["listen_idx"], me["id"]))
+    skips = conn.execute("SELECT COUNT(*) FROM skips WHERE lobby_id = ? AND position = ?",
+                         (lobby["id"], lobby["listen_idx"])).fetchone()[0]
+    total = conn.execute("SELECT COUNT(*) FROM players WHERE lobby_id = ? AND team_id IS NOT NULL",
+                         (lobby["id"],)).fetchone()[0]
+    skipped = skips >= skips_needed(total)
+    if skipped:
+        t = now()
+        listen_step(conn, lobby, t, skipped_at=t)
+    conn.commit()
+    return jsonify({"ok": True, "skipped": skipped})
 
 
 @app.get("/healthz")

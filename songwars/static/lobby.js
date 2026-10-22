@@ -132,6 +132,10 @@
     if (phase === "make") return t >= state.round.deadline - 1000;
     if (phase === "extra") return t >= state.round.closes - 1000;
     if (phase === "vote" && state.vote && state.vote.deadline) return t >= state.vote.deadline - 1000;
+    if (phase === "vote" && state.vote && state.vote.listen && !state.vote.listen.done) {
+      var cur = currentTrack(state.vote);
+      return !cur || t >= state.vote.listen.started + cur.seconds * 1000 - 500;
+    }
     if (phase === "spin" && state.spin) return true;
     return false;
   }
@@ -727,7 +731,7 @@
       sound.turn();
       window.SW.buzz([80, 60, 80]);
     }
-    if (s.my_turn) setText(nowLine, solo ? "Din tur — spin hjulet." : "Jeres tur — spin hjulet.");
+    if (s.my_turn) setText(nowLine, solo ? "Din tur til at spinne hjulet" : "Jeres tur til at spinne hjulet");
     else setText(nowLine, "Det er " + genitive(turnName(cur, solo)) + " tur.");
     btn.disabled = waiting || spinBusy;
     setText(auto, waiting ? "" : leftMs > 0
@@ -859,6 +863,7 @@
     $("make-beat").textContent = round.beat;
     if (round.beat_url) {
       setSrc($("beat-audio"), round.beat_url);
+      window.SW.player($("beat-audio"), { seconds: round.beat_seconds });
       $("beat-dl").href = round.beat_url + "?hent=1";
     }
     teamCard($("make-team"), round);
@@ -869,6 +874,7 @@
       $("my-sub-text").textContent = "Afleveret af " + (mine.by || "holdet") + " kl. " +
         timeOfDay(mine.at) + " · " + length(mine.seconds);
       setSrc($("my-sub-audio"), mine.url);
+      window.SW.player($("my-sub-audio"), { seconds: mine.seconds });
       $("drop-main").textContent = "Vælg en ny version";
       $("upload-btn").textContent = "Erstat afleveringen";
     }
@@ -1022,6 +1028,105 @@
     return t ? t.flames : null;
   }
 
+  /* ---------- Lyt sammen ----------
+     Serveren siger, hvilket nummer der spiller, og hvornaar det startede.
+     Her spilles det fra det rigtige sted - og rettes, hvis det glider mere
+     end halvandet sekund. Er der en storskaerm, spiller den for rummet, og
+     telefonerne er stille, medmindre man vaelger "Lyt ogsaa her". */
+
+  var listenHere = null;       // null: standard (fra, hvis der er en storskaerm)
+  var listenBlocked = false;   // browseren ville ikke spille uden et tryk
+  var lastListen;
+
+  function listenWanted(L) {
+    if (SCREEN) return true;
+    if (listenHere !== null) return listenHere;
+    return !L.screen;
+  }
+
+  function currentTrack(v) {
+    return v.tracks.filter(function (x) { return x.position === v.listen.position; })[0] || null;
+  }
+
+  function syncListen() {
+    var v = state && state.vote;
+    if (!v || phase !== "vote" || !v.listen) return;
+    var L = v.listen, list = $("vote-tracks"), t = serverNow();
+    v.tracks.forEach(function (tr) {
+      var li = list.querySelector('[data-id="' + tr.id + '"]');
+      var p = li && li._player;
+      if (!p) return;
+      var current = !L.done && tr.position === L.position;
+      p.setLocked(!L.done, current ? function () { listenHere = !listenWanted(L); syncListen(); } : null);
+      if (L.done) return;
+      var a = p.audio;
+      var offset = (t - L.started) / 1000;
+      if (!current || offset < 0 || offset >= tr.seconds || !listenWanted(L)) {
+        if (!a.paused) a.pause();
+        return;
+      }
+      if (a.readyState === 0) { a.preload = "auto"; a.load(); }
+      if (a.paused) {
+        try { a.currentTime = offset; } catch (e) {}
+        var started = a.play();
+        if (started && started.then) {
+          started.then(function () { listenBlocked = false; }, function () { listenBlocked = true; });
+        }
+      } else if (Math.abs(a.currentTime - offset) > 1.5) {
+        a.currentTime = offset;
+      }
+    });
+    paintListen();
+  }
+
+  function paintListen() {
+    var v = state.vote, L = v.listen, panel = $("listen");
+    panel.hidden = L.done;
+    if (L.done) return;
+    var tr = currentTrack(v);
+    if (!tr) return;
+    var offset = (serverNow() - L.started) / 1000;
+    setText($("listen-label"), "Lyt sammen · nummer " + L.position + " af " + v.tracks.length);
+    setText($("listen-now"), offset < 0
+      ? tr.label + " starter om " + Math.ceil(-offset) + " s"
+      : offset >= tr.seconds ? "Næste nummer om et øjeblik …"
+      : "Nu spiller " + tr.label + " · " + clock(Math.floor(offset) * 1000) + " / " +
+        clock(Math.floor(tr.seconds) * 1000));      // rundet ned, som afspilleren
+    var skipBtn = $("skip-btn");
+    if (skipBtn) {
+      skipBtn.textContent = L.skipped ? "Du vil springe over" : "Spring over";
+      skipBtn.disabled = L.skipped || offset < 0 || skipBusy;
+    }
+    setText($("listen-skips"), L.skips ? L.skips + " af " + L.needed + " vil springe over" : "");
+    var here = $("listen-here");
+    if (here) {
+      here.hidden = !L.screen;
+      here.textContent = listenWanted(L) ? "Lyt kun på storskærmen" : "Lyt også her";
+    }
+    $("listen-start").hidden = !(listenBlocked && listenWanted(L));
+  }
+
+  var skipBusy = false;
+  if ($("skip-btn")) $("skip-btn").addEventListener("click", function () {
+    if (!state || !state.vote || skipBusy) return;
+    skipBusy = true;
+    fetch(state.vote.skip_url, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "Accept": "application/json",
+                 "X-CSRF-Token": CSRF, "X-Requested-With": "fetch" },
+      body: JSON.stringify({ position: state.vote.listen.position })
+    }).catch(function () {}).then(function () { skipBusy = false; poll(); });
+  });
+  if ($("listen-here")) $("listen-here").addEventListener("click", function () {
+    listenHere = !listenWanted(state.vote.listen);
+    syncListen();
+  });
+  $("listen-start").addEventListener("click", function () {
+    listenBlocked = false;
+    listenHere = true;
+    syncListen();
+  });
+
   function renderVote(data) {
     var v = data.vote;
     var line = SCREEN ? "" : v.my_need
@@ -1038,13 +1143,11 @@
       v.tracks.forEach(function (t) {
         var li = el("li", "track" + (t.mine ? " track--mine" : ""));
         li.dataset.id = t.id;
-        var head = el("div", "track__head");
-        head.appendChild(el("span", "track__label", t.label));
-        head.appendChild(el("span", "track__len", length(t.seconds)));
-        li.appendChild(head);
+        // Titlen og tiden staar i afspilleren - ikke ogsaa her.
         var a = el("audio", "player");
-        a.controls = true; a.preload = "none"; a.src = t.url;
+        a.preload = "none"; a.src = t.url;
         li.appendChild(a);
+        li._player = window.SW.player(a, { label: t.label, seconds: t.seconds });
         if (!t.mine && !SCREEN) {
           li.appendChild(flameRow(t));
           li.appendChild(el("p", "track__status", ""));
@@ -1053,15 +1156,27 @@
       });
     }
 
+    var L = v.listen || { done: true };
+    if (L.position !== lastListen) {
+      if (lastListen !== undefined) {
+        if (L.done) say("alle numre er spillet. giv de sidste flammer.");
+        else say("nummer " + L.position + ".");
+      }
+      lastListen = L.position;
+    }
     v.tracks.forEach(function (t) {
       if (t.mine || SCREEN) return;
       var li = list.querySelector('[data-id="' + t.id + '"]');
       if (!li) return;
+      var waiting = !L.done && t.position > L.position;
+      li.classList.toggle("is-waiting", waiting);
+      li.querySelectorAll(".rate__btn").forEach(function (b) { b.disabled = waiting; });
       var flames = pending[t.id] !== undefined ? pending[t.id] : t.flames;
       paintRate(li.querySelector(".rate"), flames);
       var status = li.querySelector(".track__status");
       if (pending[t.id] === undefined) {
-        status.textContent = t.flames ? plural(t.flames, "flamme", "flammer") : "Ikke stemt endnu";
+        status.textContent = waiting ? "Ikke spillet endnu — hør det først"
+          : t.flames ? plural(t.flames, "flamme", "flammer") : "Ikke stemt endnu";
       }
       li.classList.toggle("is-voted", !!t.flames);
     });
@@ -1194,9 +1309,10 @@
       }
 
       var a = el("audio", "player");
-      a.controls = true; a.preload = "none"; a.src = row.url;
+      a.preload = "none"; a.src = row.url;
       body.appendChild(a);
-      var meta = [row.genre, row.label, length(row.seconds)];
+      window.SW.player(a, { label: row.label || who, seconds: row.seconds });
+      var meta = [row.genre];                   // nummer og laengde staar i afspilleren
       if (!round.solo && row.by) meta.push("afleveret af " + row.by);
       body.appendChild(el("p", "rank__meta", meta.filter(Boolean).join(" · ")));
       li.appendChild(body);
@@ -1319,12 +1435,18 @@
         announce(extra ? "Afleveringen er lukket." : "Tiden er gået.");
       }
     }
-    // Afstemningen lukker af sig selv.
-    if (phase === "vote" && state.vote && state.vote.deadline) {
-      var vleft = state.vote.deadline - t;
+    // Afstemningen lukker af sig selv - et stykke tid efter sidste nummer.
+    if (phase === "vote" && state.vote) {
       var vclock = $("vote-clock");
-      vclock.textContent = vleft > 0 ? "Afstemningen lukker om " + clock(vleft) : "Afstemningen lukker …";
-      vclock.classList.toggle("is-hot", vleft <= 60000);
+      if (state.vote.deadline) {
+        var vleft = state.vote.deadline - t;
+        vclock.textContent = vleft > 0 ? "Afstemningen lukker om " + clock(vleft) : "Afstemningen lukker …";
+        vclock.classList.toggle("is-hot", vleft <= 60000);
+      } else {
+        vclock.textContent = "Afstemningen lukker " + minutesText(state.vote.after) + " efter sidste nummer";
+        vclock.classList.remove("is-hot");
+      }
+      syncListen();
     }
   }
 

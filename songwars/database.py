@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS lobbies (
     done_at     REAL,
     turn_at     REAL,                    -- hjulet: hvornaar naeste tur begynder
     vote_deadline REAL,                  -- afstemningen lukker af sig selv
+    listen_idx  INTEGER,                 -- "lyt sammen": nummeret der spiller nu (position)
+    listen_at   REAL,                    -- ... og hvornaar det startede
     parent_id   INTEGER,                 -- forrige runde i samme serie
     practice    INTEGER NOT NULL DEFAULT 0,   -- 1 = singleplayer: ingen afstemning
     round_no    INTEGER NOT NULL DEFAULT 1,
@@ -124,6 +126,14 @@ CREATE TABLE IF NOT EXISTS screens (
     created_at  REAL NOT NULL
 );
 
+-- "Spring over" under lyt sammen: en raekke pr. spiller pr. nummer.
+CREATE TABLE IF NOT EXISTS skips (
+    lobby_id    INTEGER NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL,
+    player_id   INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    PRIMARY KEY (lobby_id, position, player_id)
+);
+
 CREATE TABLE IF NOT EXISTS hits (
     key   TEXT NOT NULL,
     at    REAL NOT NULL
@@ -160,7 +170,8 @@ def db():
 COLUMNS = {
     "lobbies": [("turn_at", "REAL"), ("vote_deadline", "REAL"), ("parent_id", "INTEGER"),
                 ("round_no", "INTEGER NOT NULL DEFAULT 1"),
-                ("practice", "INTEGER NOT NULL DEFAULT 0")],
+                ("practice", "INTEGER NOT NULL DEFAULT 0"),
+                ("listen_idx", "INTEGER"), ("listen_at", "REAL")],
     "players": [("from_id", "INTEGER"), ("avatar", "TEXT"), ("color", "TEXT")],
     "beats": [("source", "TEXT")],              # youtube:<id>, saa samme video ikke kommer to gange
     "teams": [

@@ -24,13 +24,12 @@ import secrets
 
 from flask import url_for
 
-from core import clock
+from core import LISTEN_GAP, LISTEN_INTRO, LISTEN_MAX, VOTE_AFTER_SECONDS, clock
 
 from core import (
     CODE_ALPHABET, CODE_LEN, EXTRA_SECONDS, GRACE_SECONDS, LOBBY_SECONDS,
     MAX_UPLOAD, ONLINE_SECONDS, PLACE_POINTS, REVEAL_SECONDS, SPIN_INTRO,
-    SPIN_MS, SPIN_REST, SPIN_SECONDS, VOTE_MIN_SECONDS,
-    VOTE_SECONDS_PER_TRACK, ms, now,
+    SPIN_MS, SPIN_REST, SPIN_SECONDS, ms, now,
 )
 from database import db
 
@@ -104,6 +103,12 @@ def advance(lobby):
         turn_at = lobby["turn_at"]
         while isinstance(turn_at, float) and t >= turn_at + SPIN_SECONDS:
             turn_at = spin(conn, lid, turn_at + SPIN_SECONDS, by=None)
+
+    elif status == "voting" and lobby["listen_idx"] is not None and t >= listen_ends(conn, lobby):
+        # Det nummer der spiller nu, er faerdigt - videre til det naeste.
+        # Ogsaa flere i traek, hvis ingen har kigget i et stykke tid.
+        listen_step(conn, lobby, t)
+        conn.commit()
 
     elif status == "voting" and ((lobby["vote_deadline"] is not None and t >= lobby["vote_deadline"])
                                  or voting_complete(conn, lid)):
@@ -203,8 +208,10 @@ def open_voting(conn, lid, t):
     if won:
         subs = [r["id"] for r in conn.execute(
             "SELECT id FROM submissions WHERE lobby_id = ?", (lid,))]
-        conn.execute("UPDATE lobbies SET vote_deadline = ? WHERE id = ?",
-                     (t + max(VOTE_MIN_SECONDS, VOTE_SECONDS_PER_TRACK * len(subs)), lid))
+        # Lyt sammen: Nummer 1 starter om et ojeblik. Fristen for at stemme
+        # saettes foerst, naar det sidste nummer er spillet.
+        conn.execute("UPDATE lobbies SET listen_idx = 1, listen_at = ?, vote_deadline = NULL"
+                     " WHERE id = ?", (t + LISTEN_INTRO, lid))
         # Raekkefoelgen i afstemningen er tilfaeldig - ikke den
         # raekkefoelge numrene blev afleveret i, og ikke holdnumrene.
         secrets.SystemRandom().shuffle(subs)
@@ -213,6 +220,69 @@ def open_voting(conn, lid, t):
         if not subs:
             conn.execute("UPDATE lobbies SET status = 'done', done_at = ? WHERE id = ?", (t, lid))
     conn.commit()
+
+
+def listen_track(conn, lid, position):
+    return conn.execute("SELECT * FROM submissions WHERE lobby_id = ? AND position = ?",
+                        (lid, position)).fetchone()
+
+
+def listen_ends(conn, lobby):
+    """Hvornaar nummeret der spiller nu, er spillet faerdigt (plus pausen)."""
+    sub = listen_track(conn, lobby["id"], lobby["listen_idx"])
+    seconds = min(sub["seconds"], LISTEN_MAX) if sub else 0
+    return lobby["listen_at"] + seconds + LISTEN_GAP
+
+
+def listen_step(conn, lobby, t, skipped_at=None):
+    """Lyt sammen rykker frem: et nummer ad gangen, med hvert sit tidspunkt
+    - saa alle klienter ved, hvor langt nummeret er, uanset hvornaar de
+    spoerger. Efter det sidste: fristen for at stemme. Et spring over
+    (skipped_at) starter det naeste nummer med det samme."""
+    idx, at = lobby["listen_idx"], lobby["listen_at"]
+    total = conn.execute("SELECT COUNT(*) FROM submissions WHERE lobby_id = ?",
+                         (lobby["id"],)).fetchone()[0]
+    while idx is not None:
+        if skipped_at is not None:
+            end, skipped_at = skipped_at, None
+        else:
+            sub = listen_track(conn, lobby["id"], idx)
+            end = at + (min(sub["seconds"], LISTEN_MAX) if sub else 0) + LISTEN_GAP
+            if t < end:
+                break
+        idx, at = idx + 1, end
+        if idx > total:
+            conn.execute("UPDATE lobbies SET listen_idx = NULL, listen_at = ?, vote_deadline = ?"
+                         " WHERE id = ? AND status = 'voting'", (end, end + VOTE_AFTER_SECONDS, lobby["id"]))
+            return
+    conn.execute("UPDATE lobbies SET listen_idx = ?, listen_at = ? WHERE id = ? AND status = 'voting'",
+                 (idx, at, lobby["id"]))
+
+
+def listen_state(conn, lobby, me, t):
+    """Det klienten skal bruge for at spille med: hvilket nummer, hvornaar
+    det startede, og hvor mange der vil springe det over."""
+    total = conn.execute("SELECT COUNT(*) FROM players WHERE lobby_id = ? AND team_id IS NOT NULL",
+                         (lobby["id"],)).fetchone()[0]
+    screens = conn.execute("SELECT COUNT(*) FROM screens WHERE lobby_id = ?", (lobby["id"],)).fetchone()[0]
+    if lobby["listen_idx"] is None:
+        return {"position": None, "done": True, "screen": screens > 0}
+    skips = conn.execute("SELECT player_id FROM skips WHERE lobby_id = ? AND position = ?",
+                         (lobby["id"], lobby["listen_idx"])).fetchall()
+    return {
+        "position": lobby["listen_idx"],
+        "started": ms(lobby["listen_at"]),
+        "done": False,
+        "skips": len(skips),
+        "needed": skips_needed(total),
+        "skipped": any(s["player_id"] == me["id"] for s in skips),
+        "screen": screens > 0,
+    }
+
+
+def skips_needed(players):
+    """Halvdelen af spillerne (rundet op) skal trykke "Spring over"."""
+    return max(1, (players + 1) // 2)
 
 
 def vote_progress(conn, lid):
@@ -358,6 +428,7 @@ def state_for(conn, lobby, me, t, screen=False):
         "genre": genre,
         "beat": beat_title,
         "beat_url": url_for("beat_file", code=lobby["code"]) if beat_id else None,
+        "beat_seconds": beat_seconds(conn, beat_id),
         "make_at": ms(lobby["make_at"]),
         "deadline": ms(lobby["deadline"]),
         "closes": ms(closes_at(lobby)) if lobby["deadline"] else None,
@@ -422,12 +493,16 @@ def state_for(conn, lobby, me, t, screen=False):
                 "seconds": round(s["seconds"], 1),
                 "mine": s["team_id"] == my_team,
                 "flames": mine.get(s["id"]),
+                "position": s["position"],
             } for s in sorted(subs, key=lambda s: s["position"] or 0)],
             "done_players": done,
             "voters": total,
             "my_have": have,
             "my_need": need,
             "deadline": ms(lobby["vote_deadline"]),
+            "listen": listen_state(conn, lobby, me, t),
+            "after": VOTE_AFTER_SECONDS,
+            "skip_url": url_for("skip_track", code=lobby["code"]),
             "vote_url": url_for("vote", code=lobby["code"]),
         }
         return state
@@ -620,6 +695,11 @@ def practice_summary(conn, lobby):
             best = took if best is None else min(best, took)
     return {"rounds": rounds, "delivered": delivered, "best": round(best) if best is not None else None,
             "round_no": lobby["round_no"]}
+
+
+def beat_seconds(conn, beat_id):
+    row = conn.execute("SELECT seconds FROM beats WHERE id = ?", (beat_id,)).fetchone() if beat_id else None
+    return round(row["seconds"], 1) if row else None
 
 
 def team_genre(lobby, team):

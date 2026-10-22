@@ -412,6 +412,44 @@ def vote(cl, track, flames):
     return cl.post("/l/%s/stem" % code, json={"track": track, "flames": flames},
                    headers={"X-CSRF-Token": cl.token, "X-Requested-With": "fetch"})
 
+
+def skip(cl, position):
+    return cl.post("/l/%s/spring-over" % code, json={"position": position},
+                   headers={"X-CSRF-Token": cl.token, "X-Requested-With": "fetch"})
+
+
+# ---------- lyt sammen ----------
+lst = st["vote"]["listen"]
+voting_at = database.connect().execute("SELECT voting_at FROM lobbies WHERE code=?", (code,)).fetchone()[0]
+check("lyt sammen: Nummer 1 starter om et ojeblik - ingen frist endnu", lst["position"] == 1 and not lst["done"]
+      and lst["started"] == core.ms(voting_at + core.LISTEN_INTRO) and st["vote"]["deadline"] is None
+      and lst["needed"] == 2 and lst["skips"] == 0, lst)
+track2 = [t_ for t_ in st["vote"]["tracks"] if t_["position"] == 2][0]
+judge = c if track2["mine"] else a
+r = vote(players[judge], track2["id"], 4)
+check("lyt sammen: man kan ikke stemme paa et nummer, der ikke er spillet endnu",
+      r.status_code == 409 and "ikke spillet" in r.get_json()["error"], r.get_json())
+clock[0] = voting_at + core.LISTEN_INTRO + 1
+r = skip(players[a], 1)
+check("spring over: en af fire er ikke nok", r.status_code == 200 and r.get_json()["skipped"] is False)
+skip(players[a], 1)
+lst = state(players[a], code)[1]["vote"]["listen"]
+check("spring over: taeller kun en gang pr. spiller", lst["skips"] == 1 and lst["skipped"] and lst["position"] == 1, lst)
+r = skip(players[b], 1)
+skip_at = clock[0]
+lst = state(players[c], code)[1]["vote"]["listen"]
+check("spring over: halvdelen -> naeste nummer med det samme, for alle", r.get_json()["skipped"]
+      and lst["position"] == 2 and lst["started"] == core.ms(skip_at) and lst["skips"] == 0 and not lst["skipped"], lst)
+r = skip(players[c], 1)
+check("spring over: et nummer der er forbi, kan ikke springes over", r.status_code == 409)
+secs2 = database.connect().execute("SELECT seconds FROM submissions WHERE id = ?", (track2["id"],)).fetchone()[0]
+clock[0] = skip_at + secs2 + core.LISTEN_GAP + 0.1
+s, st = state(players[a], code)
+end2 = skip_at + secs2 + core.LISTEN_GAP
+check("lyt sammen: efter sidste nummer kommer fristen for de sidste flammer", st["vote"]["listen"]["done"]
+      and st["vote"]["deadline"] == core.ms(end2 + core.VOTE_AFTER_SECONDS),
+      (st["vote"]["deadline"], core.ms(end2 + core.VOTE_AFTER_SECONDS), track2["seconds"]))
+
 r = vote(players[a], mine_id, 5)
 check("kan ikke stemme paa eget hold", r.status_code == 403)
 r = vote(players[a], theirs_id, 6)
@@ -538,9 +576,13 @@ r = o5.post("/l/%s/aflever" % code5, data={"track": (io.BytesIO(wav24), "x.wav")
             headers={"X-CSRF-Token": o5.token, "X-Requested-With": "fetch"}, content_type="multipart/form-data")
 check("upload efter den ekstra tid afvises", r.status_code == 409 and "lukket" in r.get_json()["error"], r.get_json())
 s, st = state(o5, code5)
-row5 = database.connect().execute("SELECT voting_at, vote_deadline FROM lobbies WHERE code=?", (code5,)).fetchone()
-check("den ekstra tid loeber ud -> afstemning, med frist (mindst 5 min)", st["phase"] == "vote"
-      and row5[1] - row5[0] == core.VOTE_MIN_SECONDS and st["vote"]["deadline"] == core.ms(row5[1]), (st["phase"], tuple(row5)))
+check("den ekstra tid loeber ud -> afstemning, lyt sammen foerst", st["phase"] == "vote"
+      and st["vote"]["listen"]["position"] == 1 and st["vote"]["deadline"] is None, st.get("vote"))
+clock[0] += core.LISTEN_INTRO + 3 + core.LISTEN_GAP + 0.1        # nummeret er 3 sekunder
+s, st = state(o5, code5)
+row5 = database.connect().execute("SELECT listen_at, vote_deadline FROM lobbies WHERE code=?", (code5,)).fetchone()
+check("naar nummeret er spillet: frist for de sidste flammer", st["vote"]["listen"]["done"]
+      and row5[1] - row5[0] == core.VOTE_AFTER_SECONDS and st["vote"]["deadline"] == core.ms(row5[1]), tuple(row5))
 clock[0] = row5[1] + 1
 s, st = state(p5, code5)
 check("afstemningen lukker af sig selv, selvom ingen har stemt", st["phase"] == "result", st["phase"])

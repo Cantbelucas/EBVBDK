@@ -97,7 +97,7 @@ exit-kode 1, hvis noget fejler. Kør den før hvert deploy.
 | **Reveal** | Hvert hold ser sin genre og sit beat. Varer `SONGWARS_REVEAL_SECONDS` (10 s). | Tiden |
 | **Lav** | Nedtælling. Holdets eget beat kan afspilles og hentes. Ét nummer pr. hold; et nyt upload fra en på holdet erstatter det forrige. | Tiden — eller ejeren stopper den før |
 | **Ekstra tid** | Når tiden er gået, er der `SONGWARS_EXTRA_SECONDS` (2 min) mere til at aflevere, med sit eget orange ur. Har alle hold afleveret, springes den over. | Tiden — eller ejeren lukker før |
-| **Afstemning** | Numrene i tilfældig rækkefølge som "Nummer 1, 2, 3 …". Alle giver 1–5 flammer til alle numre undtagen holdets eget. Stemmer kan ændres. Lukker af sig selv efter `SONGWARS_VOTE_MINUTES_PER_TRACK` (2 min) pr. nummer, mindst 5 min. | Slutter når alle har stemt, når tiden er gået — eller ejeren lukker |
+| **Afstemning** | **Lyt sammen**: numrene spilles for alle på samme tid, ét ad gangen, i tilfældig rækkefølge som "Nummer 1, 2, 3 …". Vil halvdelen af spillerne springe et over, starter det næste med det samme. Man giver 1–5 flammer til alle numre undtagen holdets eget — men først når nummeret er spillet. Stemmer kan ændres. Når det sidste nummer er spillet, er der `SONGWARS_VOTE_AFTER_SECONDS` (2 min) til de sidste flammer. | Slutter når alle har stemt, når tiden er gået — eller ejeren lukker |
 | **Resultat** | Rangliste efter gennemsnit af flammer. Navnene og genrerne afsløres. Lige gennemsnit giver samme plads. Ejeren kan starte en ny runde med de samme spillere. | — |
 
 **Ejeren kan lukke hver fase tidligt**: "Stop tiden nu" i lav-fasen starter
@@ -121,6 +121,23 @@ afleveret, trykker man "Jeg er færdig" (eller venter på tiden), og
 resultatet viser nummeret og hvor lang tid det tog. "Ny runde" går i gang
 med det samme, og over flere runder står der, hvor mange man nåede, og den
 hurtigste tid. Gemt som `lobbies.practice = 1`.
+
+**Lyt sammen** følger samme princip som hjulet: serveren gemmer, hvilket
+nummer der spiller, og hvornår det startede (`lobbies.listen_idx`,
+`listen_at`), og alle klienter spiller derfra — og retter sig ind, hvis de
+glider mere end halvandet sekund. Et nummer spilles højst 10 minutter for
+alle. "Spring over" gemmes pr. spiller pr. nummer (`skips`); halvdelen af
+spillerne, rundet op, skal trykke. Er der en storskærm, spiller den numrene
+for rummet, og telefonerne er stille, medmindre man trykker "Lyt også her".
+Har browseren ikke fået et tryk endnu, står der "Tryk for at lytte med".
+
+**Afspilleren** (`player()` i `common.js`) erstatter browserens egen overalt
+— beatet, din aflevering, afstemningen, resultatet, storskærmen og admin:
+en rund afspil-knap, hvis ring lyser gult mens der spilles, en tyk gul
+fremdriftslinje med en knop (klik, træk eller piletaster for at spole),
+titel til venstre og tid til højre. Ingen volumen-knap og ingen menu — den
+tilbød "Hent", også under en anonym afstemning. Under lyt sammen er den
+låst: serveren bestemmer, hvor nummeret er.
 
 **Resultatet** har et podie til top 3 og **Rundens tal** — dem man griner
 af bagefter, og kun når der er noget at sige: hårdeste dommer og
@@ -181,7 +198,7 @@ Alt kommer fra miljøet (`.env`). Ingen hemmeligheder i koden.
 | `SONGWARS_REVEAL_SECONDS` | `10` | Hvor længe genren vises før tiden starter. |
 | `SONGWARS_EXTRA_SECONDS` | `120` | Ekstra tid til at aflevere, når tiden er gået. `0` slår den fra. |
 | `SONGWARS_GRACE_SECONDS` | `10` | Se ovenfor. |
-| `SONGWARS_VOTE_MINUTES_PER_TRACK` | `2` | Afstemningen lukker efter så mange minutter pr. nummer, mindst 5. |
+| `SONGWARS_VOTE_AFTER_SECONDS` | `120` | Tid til de sidste flammer, efter det sidste nummer er spillet. |
 
 Mangler en af de to påkrævede, eller er de for korte, nægter appen at
 starte og siger hvorfor.

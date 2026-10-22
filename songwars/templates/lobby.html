@@ -166,7 +166,7 @@
       <div class="beatcard">
         <p class="muted" id="make-genre"></p>
         <h2 class="beatcard__title" id="make-beat"></h2>
-        <audio class="player" id="beat-audio" controls preload="none"></audio>
+        <audio class="player" id="beat-audio" preload="none" data-label="Beatet"></audio>
         <a class="btn" id="beat-dl" href="#">Hent beatet</a>
       </div>
 
@@ -188,7 +188,7 @@
 
       <div class="mine" id="my-sub" hidden>
         <p class="mine__head" id="my-sub-text"></p>
-        <audio class="player" id="my-sub-audio" controls preload="none"></audio>
+        <audio class="player" id="my-sub-audio" preload="none" data-label="Din aflevering"></audio>
         <p class="muted">En ny aflevering fra holdet erstatter den her.</p>
       </div>
 
@@ -211,6 +211,23 @@
       <h1 class="stage__title" data-wave>Afstemning</h1>
       <p class="progress-line" id="vote-progress"></p>
       <p class="vote-clock" id="vote-clock" role="timer"></p>
+
+      {# Lyt sammen: numrene spilles for alle paa samme tid, et ad gangen.
+         Vil halvdelen springe et over, starter det naeste med det samme. #}
+      <div class="listen" id="listen" hidden>
+        <p class="field__label" id="listen-label">Lyt sammen</p>
+        <p class="listen__now" id="listen-now" aria-live="polite"></p>
+        <div class="listen__actions">
+          <button class="btn btn--go" id="listen-start" type="button" hidden>Tryk for at lytte med</button>
+          {% if not screen %}
+            <button class="btn" id="skip-btn" type="button">Spring over</button>
+          {% endif %}
+          <span class="listen__skips" id="listen-skips"></span>
+          {% if not screen %}
+            <button class="btn btn--quiet" id="listen-here" type="button" hidden>Lyt også her</button>
+          {% endif %}
+        </div>
+      </div>
       <ol class="tracks" id="vote-tracks"></ol>
 
       {% if is_owner %}
