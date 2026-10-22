@@ -697,6 +697,49 @@ def practice_summary(conn, lobby):
             "round_no": lobby["round_no"]}
 
 
+def war_summary(conn, lobby, me):
+    """En faerdig runde til "Tidligere wars": alle numrene med hvem, genre,
+    plads og flammer - bedste foerst."""
+    lid = lobby["id"]
+    solo = lobby["team_size"] == 1
+    teams = {r["id"]: r for r in conn.execute("SELECT * FROM teams WHERE lobby_id = ?", (lid,))}
+    members = {}
+    for p in conn.execute("SELECT * FROM players WHERE lobby_id = ? ORDER BY joined_at", (lid,)):
+        members.setdefault(p["team_id"], []).append(
+            {"name": p["name"], "avatar": p["avatar"], "color": p["color"]})
+    places = team_places(conn, lid)
+    rows = []
+    for s in conn.execute("SELECT * FROM submissions WHERE lobby_id = ?", (lid,)):
+        team = teams.get(s["team_id"])
+        faces = members.get(s["team_id"], [])
+        average, votes, place = places.get(s["team_id"], (None, 0, None))
+        rows.append({
+            "who": (faces[0]["name"] if faces else "Ukendt") if solo
+                   else "Hold {0}".format(team["number"] if team else "?"),
+            "faces": faces,
+            "members": ", ".join(f["name"] for f in faces),
+            "genre": team_genre(lobby, team)[0] if team else "",
+            "average": average,
+            "votes": votes,
+            "place": place,
+            "seconds": round(s["seconds"], 1),
+            "url": url_for("track_file", code=lobby["code"], sid=s["id"]),
+            "mine": s["team_id"] == me["team_id"],
+        })
+    rows.sort(key=lambda r: (r["place"] is None, r["place"] or 0, -(r["average"] or 0)))
+    return {
+        "code": lobby["code"],
+        # Hvornaar runden blev spillet - ikke hvornaar den blev lukket (en
+        # runde ingen kiggede paa, lukkes foerst naeste gang nogen spoerger).
+        "at": lobby["started_at"] or lobby["created_at"],
+        "round_no": lobby["round_no"] or 1,
+        "practice": bool(lobby["practice"]),
+        "solo": solo,
+        "minutes": lobby["minutes"],
+        "rows": rows,
+    }
+
+
 def beat_seconds(conn, beat_id):
     row = conn.execute("SELECT seconds FROM beats WHERE id = ?", (beat_id,)).fetchone() if beat_id else None
     return round(row["seconds"], 1) if row else None

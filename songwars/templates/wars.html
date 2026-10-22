@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Tidligere wars — Songwars{% endblock %}
+{% block mainclass %}wrap{% endblock %}
+
+{% block body %}
+<h1 class="page-title" data-wave>Tidligere wars</h1>
+<p class="muted wars__intro">De runder du har været med i fra den her browser. Numrene gemmes i {{ keep_days }} dage.</p>
+
+{% if not wars %}
+  <section class="card">
+    <p class="empty">Du har ikke været med i nogen wars endnu — eller de er over {{ keep_days }} dage gamle.</p>
+    <a class="btn btn--go" href="{{ url_for('home') }}#spil">Spil</a>
+  </section>
+{% endif %}
+
+{% for w in wars %}
+  <section class="card war" aria-labelledby="war-{{ w.code }}">
+    <header class="war__head">
+      <h2 class="card__title" id="war-{{ w.code }}">
+        {# Datoen skrives af common.js i browserens egen tid. #}
+        <time data-ts="{{ (w.at * 1000) | int }}">{{ w.code }}</time>
+      </h2>
+      <span class="war__meta">
+        {{ w.code }}{% if w.round_no > 1 %} · runde {{ w.round_no }}{% endif %}
+        · {{ w.minutes }} min{% if w.practice %} · alene{% endif %}
+      </span>
+    </header>
+
+    {% if not w.rows %}
+      <p class="empty">Ingen afleverede et nummer.</p>
+    {% else %}
+      <ol class="war__tracks">
+        {% for r in w.rows %}
+          <li class="war__track{% if r.place and r.place <= 3 %} war__track--{{ r.place }}{% endif %}{% if r.mine %} is-mine{% endif %}">
+            {% if not w.practice %}
+              <span class="war__place">{{ r.place or '–' }}</span>
+            {% endif %}
+            <div class="war__body">
+              <p class="war__who">
+                {% for f in r.faces[:4] %}
+                  <span class="avatar avatar--small{% if f.color in colors %} tint--{{ f.color }}{% endif %}{% if f.avatar %} avatar--emoji{% endif %}"
+                        aria-hidden="true">{{ f.avatar or f.name[:1] | upper }}</span>
+                {% endfor %}
+                <span class="war__name">{{ r.who }}{% if r.mine %} · {{ 'dig' if w.solo else 'jer' }}{% endif %}</span>
+              </p>
+              <p class="war__info">
+                {% if r.genre %}<span class="war__genre">{{ r.genre }}</span>{% endif %}
+                {% if not w.solo %}<span>{{ r.members }}</span>{% endif %}
+                {% if not w.practice %}
+                  <span>{% if r.average is none %}ingen stemmer{% else %}{{ '%.1f' | format(r.average) | replace('.', ',') }} flammer · {{ r.votes }} {{ 'stemme' if r.votes == 1 else 'stemmer' }}{% endif %}</span>
+                {% endif %}
+              </p>
+              <audio class="player" preload="none" src="{{ r.url }}"
+                     data-label="{{ r.who }}{% if r.genre %} · {{ r.genre }}{% endif %}" data-seconds="{{ r.seconds }}"></audio>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% endif %}
+  </section>
+{% endfor %}
+
+<p class="foot"><a href="{{ url_for('home') }}">Til forsiden</a></p>
+{% endblock %}

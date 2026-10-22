@@ -482,6 +482,16 @@
 
   document.querySelectorAll("audio.player").forEach(function (a) { player(a); });
 
+  /* Tidspunkter fra serveren (<time data-ts="ms">) i browserens egen tid -
+     serveren koerer i UTC. "21. okt. kl. 20.14". */
+  document.querySelectorAll("time[data-ts]").forEach(function (node) {
+    var d = new Date(parseInt(node.dataset.ts, 10));
+    if (isNaN(d)) return;
+    node.dateTime = d.toISOString();
+    node.textContent = d.toLocaleDateString("da-DK", { day: "numeric", month: "short" }) +
+      " kl. " + d.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
+  });
+
   /* ---------- Undertekster ---------- */
 
   /* Den gule tekst skrives ud tegn for tegn. Det er ikke den slags

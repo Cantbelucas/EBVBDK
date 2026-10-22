@@ -52,7 +52,7 @@ from database import connect, db, init_db, limited
 from game import (
     VIEWER, advance, begin_round, closes_at, genres_with_beats, listen_step,
     new_code, open_voting, phase_of, skips_needed, spin, start_problem,
-    state_for, team_genre, team_on_turn,
+    state_for, team_genre, team_on_turn, war_summary,
 )
 from admin import bp as admin_bp, is_admin
 
@@ -237,6 +237,9 @@ def carried_over(lobby, depth):
     return row
 
 
+REMEMBER_LOBBIES = 40
+
+
 def screen_in(lobby, depth=0):
     """Storskaermen i den her lobby, ifoelge cookien ("s": {kode: id}). En
     skaerm foelger med i nye runder ligesom spillerne (screens.from_id)."""
@@ -288,9 +291,10 @@ def viewer_or_403(lobby):
 def remember(code, player_id):
     mine = dict(session.get("p", {}))
     mine[code] = player_id
-    # Kun de seneste lobbyer. Cookien skal ikke vokse uden graense.
-    if len(mine) > 12:
-        for old in list(mine)[:-12]:
+    # Kun de seneste lobbyer - de er ogsaa listen i "Tidligere wars". Cookien
+    # skal ikke vokse uden graense (40 koder er omkring 700 bytes).
+    if len(mine) > REMEMBER_LOBBIES:
+        for old in list(mine)[:-REMEMBER_LOBBIES]:
             mine.pop(old)
     session["p"] = mine
     session.permanent = True
@@ -345,6 +349,27 @@ def create_lobby():
     conn.commit()
     remember(code, pid)
     return redirect(url_for("lobby_page", code=code))
+
+
+@app.get("/tidligere")
+def past_wars():
+    """De runder man selv har vaeret med i - fra den her browser - med alle
+    numrene. Kun ens egne: et resultat kan kun ses af dem der var med, og
+    numrene slettes efter KEEP_SECONDS."""
+    conn = db()
+    wars = []
+    for code in list(session.get("p", {})):
+        row = conn.execute("SELECT * FROM lobbies WHERE code = ?", (code,)).fetchone()
+        if row is None:
+            continue
+        lobby = advance(row)
+        me = me_in(lobby)
+        if me is None or lobby["status"] != "done":
+            continue
+        wars.append(war_summary(conn, lobby, me))
+    wars.sort(key=lambda w: w["at"], reverse=True)
+    return render_template("wars.html", wars=wars, keep_days=KEEP_SECONDS // 86400,
+                           colors=COLORS)
 
 
 @app.post("/alene")

@@ -10,7 +10,8 @@
 {# Bogstaverne popper ind efter tur og boelger bagefter (common.js). #}
 <h1 class="hero"><span class="hero__title loud" data-wave="loop">songwars</span></h1>
 
-{# Startmenuen, som paa en konsol: Spil, Tilpas, Indstillinger. home.js viser
+{# Startmenuen, som paa en konsol: Spil, Tilpas, Tidligere wars (en side
+   for sig), Indstillinger. home.js viser
    den og et panel ad gangen (#spil, #tilpas, #indstillinger). Et link med
    ?kode= - eller en fejl fra en formular - aabner "Spil" med det samme.
    Uden JavaScript er menuen skjult, og "Spil" staar fremme. #}
@@ -26,6 +27,10 @@
       <li><a class="menu__item" href="#tilpas">
         <span class="menu__label">Tilpas</span>
         <span class="menu__hint">Kaldenavn, avatar og farve</span>
+      </a></li>
+      <li><a class="menu__item" href="{{ url_for('past_wars') }}">
+        <span class="menu__label">Tidligere wars</span>
+        <span class="menu__hint">Dine runder og alle numrene</span>
       </a></li>
       <li><a class="menu__item" href="#indstillinger">
         <span class="menu__label">Indstillinger</span>

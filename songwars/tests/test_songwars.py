@@ -523,6 +523,19 @@ conn.execute("DELETE FROM lobbies WHERE id = ?", (lid_x,)); conn.commit(); conn.
 
 ny = client(); post(ny, "/join", {"code": code_r2, "name": "Ny"})
 check("en ny spiller kan joine runde 2 med koden", any(p_["name"] == "Ny" for p_ in state(ny, code_r2)[1]["players"]))
+
+# ---------- tidligere wars ----------
+html = owner.get("/tidligere").get_data(as_text=True)
+urls = re.findall(r'src="(/l/%s/spor/[0-9a-f]{32})"' % code, html)
+check("tidligere wars: den faerdige runde med alle numrene", code in html and len(set(urls)) == 2
+      and "flammer" in html and "Hold %d" % t1 in html, (code in html, urls))
+check("tidligere wars: en runde der ikke er faerdig, er ikke med", code_r2 not in html)
+check("tidligere wars: numrene kan afspilles", owner.get(urls[0]).status_code == 200 if urls else False)
+r = nope.get("/tidligere")
+check("tidligere wars: man ser kun sine egne", r.status_code == 200 and code not in r.get_data(as_text=True)
+      and "ikke været med" in r.get_data(as_text=True))
+check("tidligere wars: ingen inline-scripts eller style=", not re.search(
+      r"<script(?![^>]*\bsrc=)|\son[a-z]+=|\sstyle=\"", html))
 check("avataren foelger med i den nye runde", {p_["name"]: p_["avatar"] for p_ in state(owner, code_r2)[1]["players"]}["Lucas"] == "🦊")
 r = scr.get("/l/%s/skaerm/state" % code_r2)
 check("storskaermen foelger med i den nye runde", r.status_code == 200 and r.get_json()["round_no"] == 2)

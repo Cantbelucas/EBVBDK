@@ -257,7 +257,10 @@
           </form>
         {% endif %}
         <a class="btn btn--go" id="next-round-link" href="#" hidden>Til næste runde</a>
-        {% if not screen %}<a class="btn" href="{{ url_for('home') }}">Ny lobby</a>{% endif %}
+        {% if not screen %}
+          <a class="btn" href="{{ url_for('home') }}">Ny lobby</a>
+          <a class="btn btn--quiet" href="{{ url_for('past_wars') }}">Tidligere wars</a>
+        {% endif %}
       </div>
     </div>
 

@@ -1739,6 +1739,44 @@ body[data-phase="spin"]::after {
 .panel__back:hover { color: var(--accent); }
 .panel.card { max-width: 560px; margin: 0 auto; }
 
+/* ---------- Tidligere wars ---------- */
+.wars__intro { margin: calc(var(--s2) * -1) 0 var(--s5); font-size: var(--fs-small); }
+.war { --tint: var(--accent); }
+.war__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s1) var(--s3); margin-bottom: var(--s3); }
+.war__head .card__title { margin-bottom: 0; }
+.war__meta { font-size: var(--fs-small); color: var(--muted); letter-spacing: 0.04em; }
+.war__tracks { display: grid; gap: var(--s2); }
+.war__track {
+  display: flex;
+  gap: var(--s3);
+  padding: var(--s3);
+  background: var(--well);
+  border: 1px solid var(--line-dark);
+  border-bottom-color: var(--line-soft);
+  border-radius: var(--r-ctl);
+}
+.war__place {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(0, 0, 0, 0.75);
+  border-radius: var(--r-ctl);
+  background: linear-gradient(180deg, #5d5953, #3b3733);
+  font-weight: 600;
+}
+.war__track--1 .war__place { background: linear-gradient(180deg, #fbe788 0%, #f4d43a 50%, #e1bd20 51%, #caa616 100%); color: var(--accent-ink); }
+.war__track--2 .war__place { background: linear-gradient(180deg, #d9d5cd 0%, #bdb8ae 50%, #a7a297 51%, #949086 100%); color: var(--accent-ink); }
+.war__track--3 .war__place { background: linear-gradient(180deg, #efbe7f 0%, #e3a04c 50%, #cc8a3a 51%, #b37630 100%); color: var(--accent-ink); }
+.war__track--1 { border-color: rgba(244, 212, 58, 0.5); }
+.war__body { display: grid; gap: var(--s2); flex: 1; min-width: 0; }
+.war__who { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.war__name { font-weight: 600; margin-left: var(--s1); overflow-wrap: anywhere; }
+.war__track--1 .war__name { color: var(--accent); }
+.war__info { display: flex; flex-wrap: wrap; gap: 2px var(--s3); font-size: 13px; color: var(--muted); }
+.war__genre { color: var(--flame); font-weight: 600; }
+
 /* "Spil alene" og "Storskaerm" paa forsiden: brede striber under de to doere. */
 .solo-door {
   display: grid;

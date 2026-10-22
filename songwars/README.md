@@ -139,6 +139,13 @@ titel til venstre og tid til højre. Ingen volumen-knap og ingen menu — den
 tilbød "Hent", også under en anonym afstemning. Under lyt sammen er den
 låst: serveren bestemmer, hvor nummeret er.
 
+**Tidligere wars** (`/tidligere`, i menuen på forsiden og under
+resultatet): de færdige runder man selv har været med i fra den browser —
+nyeste først, med alle numrene, placeringer, flammer og genrer, og en
+afspiller til hvert. Kun ens egne: et resultat kan kun ses af dem, der var
+med. Listen er de lobbyer, cookien husker (de seneste 40), og numrene
+slettes efter `SONGWARS_KEEP_DAYS` (7 dage).
+
 **Resultatet** har et podie til top 3 og **Rundens tal** — dem man griner
 af bagefter, og kun når der er noget at sige: hårdeste dommer og
 gavmildeste (laveste og højeste snit i de flammer, man gav), mest uenige
